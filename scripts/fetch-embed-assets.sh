@@ -20,8 +20,8 @@ esac
 MODEL_URL="${MODEL_URL:-https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx}"
 MODEL_SHA256="${MODEL_SHA256:-}"
 
-# onnxruntime 1.19.2 GPU-less. Override ORT_VERSION / ORT_SHA256 when pinning a new release.
-ORT_VERSION="${ORT_VERSION:-1.19.2}"
+# onnxruntime 1.21.0 (yalue/onnxruntime_go v1.19.0 needs ORT API 21). Override ORT_VERSION / ORT_SHA256 when pinning.
+ORT_VERSION="${ORT_VERSION:-1.21.0}"
 ORT_SHA256="${ORT_SHA256:-}"
 
 models_dir="$root/models"

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Download onnxruntime 1.19.2 headers + shared library for GOOS/GOARCH (native CI).
+# Download onnxruntime headers + shared library for GOOS/GOARCH (native CI).
+# 1.21.0 matches yalue/onnxruntime_go v1.19.0 (ORT_API_VERSION 21).
 set -euo pipefail
 
-ver="${ORT_VERSION:-1.19.2}"
+ver="${ORT_VERSION:-1.21.0}"
 goos="${GOOS:-}"
 goarch="${GOARCH:-}"
 if [[ -z "$goos" || -z "$goarch" ]]; then

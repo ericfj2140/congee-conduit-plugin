@@ -19,7 +19,7 @@ import (
 const (
 	DefaultModelURL     = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"
 	DefaultTokenizerURL = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
-	defaultORTVer       = "1.19.2"
+	defaultORTVer       = "1.21.0"
 )
 
 // AssetOpts locates MiniLM ONNX, tokenizer.json, and the onnxruntime shared library.
@@ -409,7 +409,7 @@ func copyRuntimeLibs(srcDir, libDir string) error {
 	if copied == 0 {
 		return fmt.Errorf("onnxruntime archive had no shared library")
 	}
-	// Microsoft archives often only ship libonnxruntime.so.1.19.2; dlopen looks for the soname too.
+	// Microsoft archives often only ship libonnxruntime.so.1.N.N; dlopen looks for the soname too.
 	if p := findRuntimeLibInDir(libDir); p != "" {
 		canon := filepath.Join(libDir, runtimeLibNames()[0])
 		if p != canon {
