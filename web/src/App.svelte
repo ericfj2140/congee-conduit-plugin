@@ -52,6 +52,8 @@
 	let actionBusy = $state(false);
 	let testBusy = $state(false);
 	let testResult = $state('');
+	let embedTestBusy = $state(false);
+	let embedTestResult = $state('');
 
 	function onHashChange() {
 		hash = location.hash || '#/';
@@ -154,6 +156,57 @@
 		}
 	}
 
+	async function testEmbed() {
+		embedTestBusy = true;
+		embedTestResult = '';
+		try {
+			const res = await pluginApi('POST', PATHS.testEmbed, {
+				url: settings.embed_http_url,
+				model: settings.embed_http_model,
+				api_key: settings.embed_http_api_key,
+				dim: settings.embed_dim
+			});
+			const j = res.json || {};
+			if (res.status && res.status >= 400) {
+				embedTestResult = apiError(j, `Failed (${res.status})`);
+			} else if (j.ok === false) {
+				embedTestResult = j.error || 'Embedding probe failed';
+			} else {
+				settings.embed_provider = 'http';
+				embedTestResult = `Ok — ${j.dim || 384}-d (${j.model_id || 'http'}). Save to offload the on-device model.`;
+			}
+		} catch (e) {
+			embedTestResult = e instanceof Error ? e.message : 'test failed';
+		} finally {
+			embedTestBusy = false;
+		}
+	}
+
+	async function ensureAssets() {
+		embedTestBusy = true;
+		embedTestResult = '';
+		try {
+			const res = await pluginApi('POST', PATHS.ensureAssets, {
+				model_url: settings.embed_model_url,
+				runtime_url: settings.embed_runtime_url,
+				force: true
+			});
+			const j = res.json || {};
+			if (res.status && res.status >= 400) {
+				embedTestResult = apiError(j, `Failed (${res.status})`);
+			} else if (j.ok === false) {
+				embedTestResult = j.error || 'Download failed';
+			} else {
+				embedTestResult = 'Assets downloaded. Save settings if URLs changed.';
+				await loadAll();
+			}
+		} catch (e) {
+			embedTestResult = e instanceof Error ? e.message : 'download failed';
+		} finally {
+			embedTestBusy = false;
+		}
+	}
+
 	onMount(() => {
 		void loadAll();
 	});
@@ -243,7 +296,15 @@
 		{:else if route === 'storage'}
 			<Storage {settings} {relayType} {testResult} {testBusy} ontest={testStore} />
 		{:else if route === 'indexes'}
-			<Indexes {settings} />
+			<Indexes
+				{settings}
+				embedder={pluginStatus.embedder}
+				assets={pluginStatus.assets}
+				testResult={embedTestResult}
+				testBusy={embedTestBusy}
+				ontest={testEmbed}
+				ondownload={ensureAssets}
+			/>
 		{:else if route === 'search'}
 			<Search {settings} />
 		{:else if route === 'kinds'}

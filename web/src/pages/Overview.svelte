@@ -19,7 +19,7 @@
 			<h2 class="text-lg font-medium text-neutral-900 dark:text-neutral-100">Overview</h2>
 			<Tooltip
 				label="About Overview"
-				tip="Counts come from the Conduit index database (conduit-index.db or Postgres), not from Congee Audit → Events. Audit is the relay activity log; with a kind filter it also lists stored relay events. Listings include NIP-15 stalls (30017), products (30018), and classifieds. Kind 34550 is a NIP-72 community, not a stall. Embeddings are vector rows — Model fake-bow-384 is the test embedder used only when CONDUIT_EMBEDDER=fake."
+				tip="Counts come from the Conduit index database (conduit-index.db or Postgres), not from Congee Audit → Events. Audit is the relay activity log; with a kind filter it also lists stored relay events. Listings include NIP-15 stalls (30017), products (30018), and classifieds. Kind 34550 is a NIP-72 community, not a stall. Embeddings are vector rows — Model fake-bow-384 is the test embedder used only when CONDUIT_EMBEDDER=fake. http:<name> is a verified external provider (384-d). On-device MiniLM is all-MiniLM-L6-v2."
 			/>
 		</div>
 		<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">

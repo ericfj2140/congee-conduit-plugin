@@ -3,26 +3,35 @@ package embed
 import (
 	"context"
 	"hash/fnv"
+	"strconv"
 	"strings"
 )
 
-const fakeDim = 384
-
 // Fake is a deterministic bag-of-words embedder for tests and e2e (CONDUIT_EMBEDDER=fake).
-type Fake struct{}
+type Fake struct {
+	Width int
+}
 
-func (Fake) ModelID() string { return "fake-bow-384" }
-func (Fake) Dim() int        { return fakeDim }
+func (f Fake) dim() int {
+	if f.Width > 0 {
+		return f.Width
+	}
+	return DefaultDim
+}
 
-func (Fake) Embed(ctx context.Context, text string) ([]float32, error) {
+func (f Fake) ModelID() string { return "fake-bow-" + strconv.Itoa(f.dim()) }
+func (f Fake) Dim() int        { return f.dim() }
+
+func (f Fake) Embed(ctx context.Context, text string) ([]float32, error) {
 	_ = ctx
-	v := make([]float32, fakeDim)
+	n := f.dim()
+	v := make([]float32, n)
 	for _, tok := range strings.Fields(strings.ToLower(text)) {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(tok))
-		idx := int(h.Sum32() % fakeDim)
+		idx := int(h.Sum32() % uint32(n))
 		v[idx] += 1
-		v[(idx+17)%fakeDim] += 0.5
+		v[(idx+17)%n] += 0.5
 	}
 	L2Normalize(v)
 	return v, nil

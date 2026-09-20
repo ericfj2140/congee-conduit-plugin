@@ -8,5 +8,9 @@
     "darwin_amd64": "bin/conduit-plugin",
     "linux_amd64": "bin/conduit-plugin",
     "linux_arm64": "bin/conduit-plugin"
+  },
+  "hooks": {
+    "install": ["--hook=install"],
+    "launch": ["--hook=launch"]
   }
 }

@@ -15,4 +15,8 @@ Depends only on `github.com/michmich112/congee/sdk/plugin`.
 
 ## Run under Congee
 
-Install from a local package directory (plugin.json + bin/ + ui/ + kinds.json). Set `CONDUIT_EMBEDDER=fake` for tests (required to use the bag-of-words embedder). Raise `plugins.intercept_timeout_ms` to at least 200 (250 in `config.example.json`).
+Install from a local package directory (`plugin.json` + `bin/` + `ui/` + `kinds.json`). Raise `plugins.intercept_timeout_ms` to at least 200 (250 in `config.example.json`).
+
+On-device ranking downloads MiniLM ONNX and onnxruntime into the plugin **data** directory via install/launch hooks (`--hook=install` / `--hook=launch`). Set `CONDUIT_EMBEDDER=fake` for tests (skips download; required to use the bag-of-words embedder). Vector width is `embed_dim` (default 384); Save rebuilds the index when it or the provider changes.
+
+Indexes can use a verified OpenAI-compatible embeddings URL that returns **embed_dim** floats; after Test + Save, MiniLM is not loaded. Model and runtime URLs are configurable if the default Hugging Face / Microsoft downloads fail (errors are logged; no panic).

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/michmich112/conduit-plugin/embed"
@@ -18,16 +18,27 @@ func main() {
 	if dataDir == "" {
 		dataDir = "."
 	}
-	model := filepath.Join(dataDir, "models", "minilm.onnx")
-	sel := embed.Select(model)
+	for _, a := range os.Args[1:] {
+		if a == "--hook=install" || a == "--hook=launch" || strings.HasPrefix(a, "--hook=") {
+			if err := handler.RunLifecycleHook(context.Background(), dataDir, os.Getenv(sdk.EnvPluginSettings)); err != nil {
+				fmt.Fprintf(os.Stderr, "asset setup: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+	}
+	embed.PrepareRuntimeLibrary(dataDir)
+	sel := embed.Select(embed.DefaultModelPath(dataDir))
 	switch sel.Source {
 	case embed.SourceExplicitFake:
-		fmt.Fprintf(os.Stderr, "embedder fake-bow-384: CONDUIT_EMBEDDER=fake\n")
+		fmt.Fprintf(os.Stderr, "embedder %s: CONDUIT_EMBEDDER=fake\n", sel.ModelID)
 	case embed.SourceONNX:
 		fmt.Fprintf(os.Stderr, "embedder onnx model_id=%s\n", sel.ModelID)
+	case embed.SourceHTTP:
+		fmt.Fprintf(os.Stderr, "embedder http model_id=%s dim=%d\n", sel.ModelID, sel.Dim)
 	default:
 		fmt.Fprintf(os.Stderr, "embedder unavailable: %s\n", sel.Error)
-		fmt.Fprintf(os.Stderr, "vector rank disabled until a real model loads or CONDUIT_EMBEDDER=fake\n")
+		fmt.Fprintf(os.Stderr, "vector rank disabled until a real model loads, an external provider is verified, or CONDUIT_EMBEDDER=fake\n")
 	}
 	h := handler.New(dataDir, sel)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)

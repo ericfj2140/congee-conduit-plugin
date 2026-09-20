@@ -192,9 +192,10 @@ ON CONFLICT(coord) DO UPDATE SET
 			return nil
 		}
 		skipEmbed := false
+		var existingDim int
 		if existingHash == l.TextHash {
-			err = s.db.QueryRowContext(ctx, `SELECT model FROM listing_embeddings WHERE coord = `+s.ph(1), l.Coord).Scan(&existingModel)
-			if err == nil && existingModel == s.embedder.ModelID() {
+			err = s.db.QueryRowContext(ctx, `SELECT model, dim FROM listing_embeddings WHERE coord = `+s.ph(1), l.Coord).Scan(&existingModel, &existingDim)
+			if err == nil && existingModel == s.embedder.ModelID() && existingDim == s.embedder.Dim() {
 				skipEmbed = true
 			}
 		}
@@ -319,7 +320,7 @@ func (s *sqlStore) Stats(ctx context.Context) (Stats, error) {
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listing_embeddings`).Scan(&st.Embeddings)
 	if s.embedder != nil {
 		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listings l LEFT JOIN listing_embeddings e ON l.coord = e.coord
-WHERE l.status = 'active' AND (e.coord IS NULL OR e.model != `+s.ph(1)+`)`, s.embedder.ModelID()).Scan(&st.EmbeddingMismatch)
+WHERE l.status = 'active' AND (e.coord IS NULL OR e.model != `+s.ph(1)+` OR e.dim != `+s.ph(2)+`)`, s.embedder.ModelID(), s.embedder.Dim()).Scan(&st.EmbeddingMismatch)
 	}
 	return st, nil
 }

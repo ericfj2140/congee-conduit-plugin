@@ -5,6 +5,25 @@ import (
 	"math"
 )
 
+// DefaultDim is all-MiniLM-L6-v2's width. Operators may set embed_dim for other models.
+const DefaultDim = 384
+
+const (
+	MinDim = 8
+	MaxDim = 4096
+)
+
+func normalizeDim(d int) int {
+	if d <= 0 {
+		return DefaultDim
+	}
+	return d
+}
+
+func validDim(d int) bool {
+	return d >= MinDim && d <= MaxDim
+}
+
 // Embedder produces L2-normalized vectors.
 type Embedder interface {
 	ModelID() string
