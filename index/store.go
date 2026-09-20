@@ -95,6 +95,7 @@ type Store interface {
 	Stats(ctx context.Context) (Stats, error)
 	Ping(ctx context.Context) error
 	Close() error
+	PurgeKindsNotIn(ctx context.Context, keep []int) error
 }
 
 func clampLimit(n, max int) int {
@@ -132,8 +133,5 @@ func bytesToFloats(b []byte) []float32 {
 }
 
 func ensureEmbedder(e embed.Embedder) embed.Embedder {
-	if e == nil {
-		return embed.Fake{}
-	}
 	return e
 }

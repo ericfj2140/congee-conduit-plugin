@@ -4,18 +4,21 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+
+	"github.com/michmich112/conduit-plugin/kinds"
 )
 
 // FromEvent parses a stored Nostr event into a Listing. ok=false means skip (malformed or irrelevant).
+// Kind roles come from kinds.json (stall / product / listing / listing_draft / deletion).
 func FromEvent(ev Event, indexDrafts bool) (Listing, bool) {
-	switch ev.Kind {
-	case KindDeletion:
+	switch {
+	case kinds.HasRole(ev.Kind, kinds.RoleDeletion):
 		return fromDeletion(ev)
-	case KindClassified, KindClassifiedDraft:
+	case kinds.HasRole(ev.Kind, kinds.RoleListing) || kinds.HasRole(ev.Kind, kinds.RoleListingDraft):
 		return fromNIP99(ev, indexDrafts)
-	case KindProduct, KindProductParam:
+	case kinds.HasRole(ev.Kind, kinds.RoleProduct):
 		return fromProduct(ev)
-	case KindStall, KindStallParam:
+	case kinds.HasRole(ev.Kind, kinds.RoleStall):
 		return fromStall(ev)
 	default:
 		return Listing{}, false

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/michmich112/conduit-plugin/kinds"
 	"github.com/michmich112/conduit-plugin/listing"
 	sdk "github.com/michmich112/congee/sdk/plugin"
 )
@@ -75,15 +76,35 @@ func parseSettings(raw json.RawMessage) (Settings, error) {
 	}
 	if len(s.ProductKinds) == 0 {
 		s.ProductKinds = listing.DefaultProductKinds()
+	} else {
+		s.ProductKinds = keepKindsWithAnyRole(s.ProductKinds, kinds.RoleProduct, kinds.RoleListing)
+		if len(s.ProductKinds) == 0 {
+			s.ProductKinds = listing.DefaultProductKinds()
+		}
 	}
 	if len(s.StallKinds) == 0 {
 		s.StallKinds = listing.DefaultStallKinds()
+	} else {
+		s.StallKinds = keepKindsWithAnyRole(s.StallKinds, kinds.RoleStall)
+		if len(s.StallKinds) == 0 {
+			s.StallKinds = listing.DefaultStallKinds()
+		}
 	}
 	if len(s.DraftKinds) == 0 {
 		s.DraftKinds = listing.DefaultDraftKinds()
+	} else {
+		s.DraftKinds = keepKindsWithAnyRole(s.DraftKinds, kinds.RoleListingDraft)
+		if len(s.DraftKinds) == 0 {
+			s.DraftKinds = listing.DefaultDraftKinds()
+		}
 	}
 	if len(s.DeletionKinds) == 0 {
 		s.DeletionKinds = listing.DefaultDeletionKinds()
+	} else {
+		s.DeletionKinds = keepKindsWithAnyRole(s.DeletionKinds, kinds.RoleDeletion)
+		if len(s.DeletionKinds) == 0 {
+			s.DeletionKinds = listing.DefaultDeletionKinds()
+		}
 	}
 	s.InjectProductKindsOnSearch = false
 	return s, nil
@@ -119,6 +140,29 @@ func uniqueInts(in []int) []int {
 	var out []int
 	for _, n := range in {
 		if _, ok := seen[n]; ok {
+			continue
+		}
+		seen[n] = struct{}{}
+		out = append(out, n)
+	}
+	return out
+}
+
+func keepKindsWithAnyRole(in []int, roles ...string) []int {
+	var out []int
+	seen := map[int]struct{}{}
+	for _, n := range in {
+		if _, ok := seen[n]; ok {
+			continue
+		}
+		keep := false
+		for _, role := range roles {
+			if kinds.HasRole(n, role) {
+				keep = true
+				break
+			}
+		}
+		if !keep {
 			continue
 		}
 		seen[n] = struct{}{}

@@ -89,6 +89,34 @@ func TestFromEventStall(t *testing.T) {
 	}
 }
 
+func TestFromEventCommunityDefinitionIsNotStall(t *testing.T) {
+	if _, ok := FromEvent(Event{
+		ID: "c1", PubKey: pk, CreatedAt: 4, Kind: 34550,
+		Tags: [][]string{{"d", "IP2"}, {"description", "a community"}},
+	}, false); ok {
+		t.Fatal("kind 34550 community definition must not parse as a listing")
+	}
+	if _, ok := FromEvent(Event{
+		ID: "c2", PubKey: pk, Kind: 34560, Content: `{"id":"x","name":"nope"}`,
+		Tags: [][]string{{"d", "x"}},
+	}, false); ok {
+		t.Fatal("kind 34560 must not parse as a product")
+	}
+}
+
+func TestDefaultStallKindsOmitCommunity(t *testing.T) {
+	for _, k := range DefaultStallKinds() {
+		if k == 34550 {
+			t.Fatal("34550 must not be a default stall kind")
+		}
+	}
+	for _, k := range DefaultProductKinds() {
+		if k == 34550 || k == 34560 {
+			t.Fatalf("unofficial/community kind %d in product defaults", k)
+		}
+	}
+}
+
 func TestFromEventKind5EAndASamePubkey(t *testing.T) {
 	other := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	l, ok := FromEvent(Event{

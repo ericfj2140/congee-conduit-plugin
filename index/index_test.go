@@ -194,3 +194,47 @@ func TestTursoSearchGeoProximity(t *testing.T) {
 		}
 	}
 }
+
+func TestPurgeKindsNotInRemovesNonKeep(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "conduit-purge.db")
+	st, err := OpenTurso(ctx, path, embed.Fake{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	stall, ok := listing.FromEvent(listing.Event{
+		ID: "st1", PubKey: pk, CreatedAt: 4, Kind: listing.KindStall,
+		Content: `{"id":"stall-a","name":"Market"}`,
+		Tags:    [][]string{{"d", "stall-a"}},
+	}, false)
+	if !ok {
+		t.Fatal("stall")
+	}
+	prod, ok := listing.FromEvent(listing.Event{
+		ID: "p1", PubKey: pk, CreatedAt: 5, Kind: listing.KindProduct,
+		Content: `{"id":"sku","name":"Mug","stall_id":"stall-a"}`,
+		Tags:    [][]string{{"d", "sku"}},
+	}, false)
+	if !ok {
+		t.Fatal("product")
+	}
+	if err := st.Upsert(ctx, stall); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Upsert(ctx, prod); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PurgeKindsNotIn(ctx, listing.DefaultProductKinds()); err != nil {
+		t.Fatal(err)
+	}
+	page, err := st.ListListings(ctx, ListQuery{Limit: 20, Offset: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range page.Items {
+		if item.Kind == listing.KindStall {
+			t.Fatal("stall kind should have been purged")
+		}
+	}
+}
