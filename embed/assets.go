@@ -409,5 +409,33 @@ func copyRuntimeLibs(srcDir, libDir string) error {
 	if copied == 0 {
 		return fmt.Errorf("onnxruntime archive had no shared library")
 	}
+	// Microsoft archives often only ship libonnxruntime.so.1.19.2; dlopen looks for the soname too.
+	if p := findRuntimeLibInDir(libDir); p != "" {
+		canon := filepath.Join(libDir, runtimeLibNames()[0])
+		if p != canon {
+			if _, err := os.Stat(canon); err != nil {
+				_ = copyFile(p, canon)
+			}
+		}
+	}
 	return nil
+}
+
+func copyFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	_ = os.Chmod(dest, 0o755)
+	return closeErr
 }

@@ -94,6 +94,9 @@ async function waitReady() {
 		if (st.ready && emb.source === 'onnx' && emb.vector_ranking && assets.model_ok && assets.runtime_ok) {
 			return st
 		}
+		if (st.ready && emb.source === 'unavailable' && Date.now() - t0 > 90000) {
+			throw new Error('plugin ready but embedder unavailable: ' + (emb.error || ''))
+		}
 		await wait(5000)
 	}
 	throw new Error('plugin not ready with onnx')

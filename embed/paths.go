@@ -109,16 +109,41 @@ func findRuntimeLib(dataDir string) (string, error) {
 			filepath.Join(dataDir, "lib"),
 		)
 	}
-	names := runtimeLibNames()
 	for _, dir := range dirs {
-		for _, name := range names {
-			p := filepath.Join(dir, name)
-			if st, err := os.Stat(p); err == nil && !st.IsDir() {
-				return p, nil
-			}
+		if p := findRuntimeLibInDir(dir); p != "" {
+			return p, nil
 		}
 	}
-	return "", fmt.Errorf("not found (looked in package lib/%s)", plat)
+	return "", fmt.Errorf("not found (looked in package lib/%s and data/lib/%s)", plat, plat)
+}
+
+func findRuntimeLibInDir(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	want := map[string]struct{}{}
+	for _, n := range runtimeLibNames() {
+		want[n] = struct{}{}
+	}
+	var versioned string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !isRuntimeLibName(name) {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if _, ok := want[name]; ok {
+			return p
+		}
+		if versioned == "" {
+			versioned = p
+		}
+	}
+	return versioned
 }
 
 // PrepareRuntimeLibrary prepends the packaged onnxruntime directory to the

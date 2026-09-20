@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -67,6 +68,28 @@ func TestEnsureAssetsDownloads(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "models")); !os.IsNotExist(err) {
 		t.Fatal("models should be gone after uninstall cleanup")
+	}
+}
+
+func TestFindRuntimeLibVersionedSharedObject(t *testing.T) {
+	dir := t.TempDir()
+	libDir := filepath.Join(dir, "lib", runtime.GOOS+"_"+runtime.GOARCH)
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	name := "libonnxruntime.so.1.19.2"
+	if runtime.GOOS == "darwin" {
+		name = "libonnxruntime.1.19.2.dylib"
+	}
+	if err := os.WriteFile(filepath.Join(libDir, name), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := findRuntimeLib(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(got) != name {
+		t.Fatalf("got %s want %s", got, name)
 	}
 }
 
