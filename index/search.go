@@ -21,7 +21,7 @@ func searchSQL(ctx context.Context, s *sqlStore, q Query) ([]string, error) {
 	if minPrefix <= 0 {
 		minPrefix = 2
 	}
-	wantSearch := q.VectorEnabled && strings.TrimSpace(q.Search) != ""
+	wantSearch := q.VectorEnabled && s.embedder != nil && strings.TrimSpace(q.Search) != ""
 	needGeoJoin := q.GeoEnabled && len(q.GeoPrefixes) > 0
 	sortByProximity := needGeoJoin && !wantSearch
 
@@ -190,6 +190,9 @@ func searchSQL(ctx context.Context, s *sqlStore, q Query) ([]string, error) {
 }
 
 func (s *sqlStore) embedQuery(ctx context.Context, text string) ([]float32, error) {
+	if s.embedder == nil {
+		return nil, fmt.Errorf("embedder unavailable")
+	}
 	key := s.embedder.ModelID() + "\n" + text
 	if v, ok := s.qcache.get(key); ok {
 		return v, nil

@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-// NewONNX loads a MiniLM ONNX model if the file exists. v1 falls back when the runtime is unavailable.
+// NewONNX loads a MiniLM ONNX model if the file exists. This build does not link onnxruntime.
 func NewONNX(path string) (Embedder, error) {
 	if path == "" {
 		return nil, fmt.Errorf("onnx: empty path")

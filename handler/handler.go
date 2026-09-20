@@ -18,7 +18,7 @@ import (
 // Handler implements sdk.Handler for Conduit.
 type Handler struct {
 	dataDir  string
-	embedder embed.Embedder
+	embedSel embed.Selection
 
 	mu              sync.RWMutex
 	settings        Settings
@@ -37,10 +37,10 @@ type Handler struct {
 	reshapeN     atomic.Int64
 }
 
-func New(dataDir string, e embed.Embedder) *Handler {
+func New(dataDir string, sel embed.Selection) *Handler {
 	return &Handler{
 		dataDir:       dataDir,
-		embedder:      e,
+		embedSel:      sel,
 		settings:      defaultSettings(),
 		backfillState: "idle",
 	}
@@ -137,7 +137,7 @@ func (h *Handler) InterceptREQ(ctx context.Context, req sdk.Req) (*sdk.Intercept
 		GeoMinPrefixLen:    st.GeoMinPrefixLen,
 		SearchCandidateCap: st.SearchCandidateCap,
 		ActiveOnly:         st.ActiveFilter,
-		VectorEnabled:      st.VectorEnabled,
+		VectorEnabled:      st.VectorEnabled && h.embedSel.VectorRanking(),
 		GeoEnabled:         st.GeoEnabled,
 	}
 	if d.kind == decRespondGeo {
@@ -205,6 +205,7 @@ func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
 	ready := h.ready
 	store := h.store
 	bf := h.backfillState
+	sel := h.embedSel
 	h.mu.RUnlock()
 	stats := index.Stats{Backend: st.IndexBackend}
 	if store != nil {
@@ -224,6 +225,13 @@ func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
 		"respond_n":          h.respondN.Load(),
 		"reshape_n":          h.reshapeN.Load(),
 		"settings":           st.redacted(),
+		"embedder": map[string]any{
+			"model_id":       sel.ModelID,
+			"source":         sel.Source,
+			"error":          sel.Error,
+			"warning":        sel.Warning,
+			"vector_ranking": sel.VectorRanking() && st.VectorEnabled,
+		},
 	})
 	return &sdk.Status{Ready: ready, JSON: body}, nil
 }
@@ -239,18 +247,19 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 		pw = st.PostgresPassword
 		st.PostgresPassword = ""
 	}
-	e := h.embedder
-	if e == nil || os.Getenv("CONDUIT_EMBEDDER") == "fake" {
-		e = embed.Fake{}
-		h.embedder = e
+	if os.Getenv("CONDUIT_EMBEDDER") == "fake" {
+		h.embedSel = embed.ExplicitFake()
 	}
-	if err := embed.Warm(ctx, e); err != nil {
-		h.mu.Lock()
-		h.lastErr = err.Error()
-		h.embedWarm = false
-		h.ready = false
-		h.mu.Unlock()
-		return err
+	e := h.embedSel.Embedder
+	if e != nil {
+		if err := embed.Warm(ctx, e); err != nil {
+			h.mu.Lock()
+			h.lastErr = err.Error()
+			h.embedWarm = false
+			h.ready = false
+			h.mu.Unlock()
+			return err
+		}
 	}
 	store, err := h.openStore(ctx, st, pw, e)
 	if err != nil {
@@ -268,10 +277,29 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 	h.store = store
 	h.settings = st
 	h.storeOpen = true
-	h.embedWarm = true
+	h.embedWarm = e != nil
 	h.ready = true
 	h.lastErr = ""
 	h.mu.Unlock()
+	keep := listing.DefaultStallKinds()
+	keep = append(keep, listing.DefaultProductKinds()...)
+	keep = append(keep, listing.DefaultDraftKinds()...)
+	keep = append(keep, listing.DefaultDeletionKinds()...)
+	if err := store.PurgeKindsNotIn(ctx, keep); err != nil {
+		h.log(ctx, "warn", "purge non-marketplace kinds", map[string]string{"error": err.Error()})
+	}
+	if e == nil {
+		h.log(ctx, "warn", "embedder unavailable", map[string]string{
+			"error":   h.embedSel.Error,
+			"warning": h.embedSel.Warning,
+		})
+	} else if h.embedSel.Warning != "" {
+		h.log(ctx, "info", "embedder selected", map[string]string{
+			"source":  h.embedSel.Source,
+			"model":   h.embedSel.ModelID,
+			"warning": h.embedSel.Warning,
+		})
+	}
 	_ = opening
 	return nil
 }

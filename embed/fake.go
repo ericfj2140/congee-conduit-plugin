@@ -27,11 +27,3 @@ func (Fake) Embed(ctx context.Context, text string) ([]float32, error) {
 	L2Normalize(v)
 	return v, nil
 }
-
-// New returns Fake when CONDUIT_EMBEDDER=fake or when no ONNX model is present.
-func New(modelPath string) Embedder {
-	if e, err := NewONNX(modelPath); err == nil {
-		return e
-	}
-	return Fake{}
-}
