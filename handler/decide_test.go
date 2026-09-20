@@ -1,0 +1,61 @@
+package handler
+
+import (
+	"testing"
+
+	sdk "github.com/michmich112/congee/sdk/plugin"
+)
+
+func TestDecidePassthroughNotReady(t *testing.T) {
+	st := defaultSettings()
+	d := decide(reqSearch(), st, false)
+	if d.kind != decPassthrough {
+		t.Fatalf("%v", d.kind)
+	}
+}
+
+func TestDecideSearchRespond(t *testing.T) {
+	st := defaultSettings()
+	d := decide(reqSearch(), st, true)
+	if d.kind != decRespondSearch {
+		t.Fatalf("%v", d.kind)
+	}
+}
+
+func TestDecideInjectKinds(t *testing.T) {
+	st := defaultSettings()
+	st.InjectProductKindsOnSearch = true
+	d := decide(sdk.Req{Filters: []sdk.Filter{{Search: "bike"}}}, st, true)
+	if d.kind != decReshape || len(d.filters) != 1 || len(d.filters[0].Kinds) == 0 {
+		t.Fatalf("%+v", d)
+	}
+}
+
+func TestDecideGeo(t *testing.T) {
+	st := defaultSettings()
+	d := decide(sdk.Req{Filters: []sdk.Filter{{Kinds: []int{30402}, Tags: map[string][]string{"g": {"9q8"}}}}}, st, true)
+	if d.kind != decRespondGeo {
+		t.Fatalf("%v", d.kind)
+	}
+}
+
+func TestDecideRankAll(t *testing.T) {
+	st := defaultSettings()
+	st.RankAllProductReqs = true
+	d := decide(sdk.Req{Filters: []sdk.Filter{{Kinds: []int{30402}}}}, st, true)
+	if d.kind != decRespondRankAll {
+		t.Fatalf("%v", d.kind)
+	}
+}
+
+func TestDecideKind1Passthrough(t *testing.T) {
+	st := defaultSettings()
+	d := decide(sdk.Req{Filters: []sdk.Filter{{Kinds: []int{1}, Search: "hi"}}}, st, true)
+	if d.kind != decPassthrough {
+		t.Fatalf("%v", d.kind)
+	}
+}
+
+func reqSearch() sdk.Req {
+	return sdk.Req{Filters: []sdk.Filter{{Kinds: []int{30402}, Search: "bike"}}}
+}
