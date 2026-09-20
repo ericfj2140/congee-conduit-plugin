@@ -1,4 +1,7 @@
 <script>
+	import InfoLabel from '../lib/InfoLabel.svelte';
+	import Tooltip from '../lib/Tooltip.svelte';
+
 	let { settings, relayType = '', testResult = '', testBusy = false, ontest } = $props();
 
 	let mode = $derived(settings.postgres_url ? 'url' : 'auto');
@@ -17,7 +20,13 @@
 
 <section class="space-y-6">
 	<div>
-		<h2 class="text-lg font-medium text-neutral-900 dark:text-neutral-100">Storage</h2>
+		<div class="flex items-center gap-1.5">
+			<h2 class="text-lg font-medium text-neutral-900 dark:text-neutral-100">Storage</h2>
+			<Tooltip
+				label="About Storage"
+				tip="The Conduit index is a separate database from the relay event store. Turso/libSQL is a local file (conduit-index.db) in the plugin data directory. Postgres is for sharing the index across instances. Events still live in Congee; this store only keeps parsed listings, geo, and embeddings."
+			/>
+		</div>
 		<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
 			Where Conduit keeps its marketplace index. This is separate from the relay event store.
 		</p>
@@ -51,7 +60,13 @@
 			type="button"
 			onclick={() => setBackend('turso')}
 		>
-			<div class="text-sm font-medium">Turso</div>
+			<div class="flex items-center gap-1.5 text-sm font-medium">
+				Turso
+				<Tooltip
+					label="About Turso"
+					tip="Local libSQL file conduit-index.db in the plugin data directory. Fine for a single instance. Events remain in Congee; only parsed listings, geo, and embeddings live here."
+				/>
+			</div>
 			<p class="mt-1 text-xs opacity-80">Local libSQL file in the plugin data directory.</p>
 		</button>
 		<button
@@ -64,7 +79,13 @@
 			type="button"
 			onclick={() => setBackend('postgres')}
 		>
-			<div class="text-sm font-medium">Postgres</div>
+			<div class="flex items-center gap-1.5 text-sm font-medium">
+				Postgres
+				<Tooltip
+					label="About Postgres"
+					tip="Shared SQL index for multi-instance relays. Point at a URL or local user/password. Keep this on postgres if the relay itself is postgres, otherwise search and events can diverge."
+				/>
+			</div>
 			<p class="mt-1 text-xs opacity-80">Shared SQL index. Use a URL or user / password.</p>
 		</button>
 	</div>
@@ -106,7 +127,10 @@
 
 		{#if mode === 'url'}
 			<label class="block space-y-1">
-				<span class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Postgres URL</span>
+				<InfoLabel
+					text="Postgres URL"
+					tip="Full connection string for the Conduit index (not the relay DSN unless you intentionally share a database). Stored in plugin settings; password in the URL is persisted — prefer user/password fields if you want the secret in the plugin secrets file."
+				/>
 				<input
 					class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
 					bind:value={settings.postgres_url}
@@ -117,7 +141,10 @@
 		{:else}
 			<div class="grid gap-3 sm:grid-cols-2">
 				<label class="block space-y-1">
-					<span class="text-sm font-medium text-neutral-800 dark:text-neutral-200">User</span>
+					<InfoLabel
+						text="User"
+						tip="Postgres role used when URL is empty. Connects to 127.0.0.1:5432/conduit."
+					/>
 					<input
 						class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
 						bind:value={settings.postgres_user}
@@ -126,7 +153,10 @@
 					/>
 				</label>
 				<label class="block space-y-1">
-					<span class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Password</span>
+					<InfoLabel
+						text="Password"
+						tip="Stored in the plugin secrets file, not in settings JSON. Leave empty to keep the current password."
+					/>
 					<input
 						class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
 						type="password"

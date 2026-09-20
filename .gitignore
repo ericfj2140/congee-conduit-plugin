@@ -5,3 +5,12 @@ bin/
 *.db-shm
 data/
 .DS_Store
+models/*.onnx
+models/*.onnx.data
+lib/**/*.dylib
+lib/**/*.so
+lib/**/*.dll
+lib/**/*.so.*
+go.work
+go.work.sum
+

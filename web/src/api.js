@@ -17,7 +17,12 @@ export const PATHS = {
 	settings: '/api/plugins/conduit/settings',
 	status: '/api/plugins/conduit/status',
 	rebuild: '/api/plugins/conduit/actions/rebuild',
-	testStore: '/api/plugins/conduit/actions/test_store'
+	testStore: '/api/plugins/conduit/actions/test_store',
+	testEmbed: '/api/plugins/conduit/actions/test_embed',
+	ensureAssets: '/api/plugins/conduit/actions/ensure_assets',
+	listListings: '/api/plugins/conduit/actions/list_listings',
+	listEmbeddings: '/api/plugins/conduit/actions/list_embeddings',
+	getEvent: '/api/plugins/conduit/actions/get_event'
 };
 
 export function applyTheme(theme) {

@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+
+	"github.com/michmich112/conduit-plugin/kinds"
 )
 
 const (
@@ -12,8 +14,6 @@ const (
 	KindProduct         = 30018
 	KindClassified      = 30402
 	KindClassifiedDraft = 30403
-	KindStallParam      = 34550
-	KindProductParam    = 34560
 
 	StatusActive   = "active"
 	StatusInactive = "inactive"
@@ -112,17 +112,19 @@ func (l Listing) ComputeTextHash() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// DefaultProductKinds are indexed product kinds.
-func DefaultProductKinds() []int { return []int{KindProduct, KindProductParam, KindClassified} }
+// DefaultProductKinds are indexed product and classified listing kinds from kinds.json.
+func DefaultProductKinds() []int {
+	return kinds.KindsWithAnyRole(kinds.RoleProduct, kinds.RoleListing)
+}
 
-// DefaultStallKinds are indexed stall kinds.
-func DefaultStallKinds() []int { return []int{KindStall, KindStallParam} }
+// DefaultStallKinds are indexed stall kinds from kinds.json.
+func DefaultStallKinds() []int { return kinds.KindsWithRole(kinds.RoleStall) }
 
-// DefaultDraftKinds is kind 30403.
-func DefaultDraftKinds() []int { return []int{KindClassifiedDraft} }
+// DefaultDraftKinds are NIP-99 draft kinds from kinds.json.
+func DefaultDraftKinds() []int { return kinds.KindsWithRole(kinds.RoleListingDraft) }
 
-// DefaultDeletionKinds is kind 5.
-func DefaultDeletionKinds() []int { return []int{KindDeletion} }
+// DefaultDeletionKinds are deletion kinds from kinds.json.
+func DefaultDeletionKinds() []int { return kinds.KindsWithRole(kinds.RoleDeletion) }
 
 func tagValue(tags [][]string, name string) string {
 	for _, t := range tags {

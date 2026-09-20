@@ -2,8 +2,28 @@ package embed
 
 import (
 	"context"
+	"fmt"
 	"math"
 )
+
+// DefaultDim is all-MiniLM-L6-v2's width. Operators may set embed_dim for other models.
+const DefaultDim = 384
+
+const (
+	MinDim = 8
+	MaxDim = 4096
+)
+
+func normalizeDim(d int) int {
+	if d <= 0 {
+		return DefaultDim
+	}
+	return d
+}
+
+func validDim(d int) bool {
+	return d >= MinDim && d <= MaxDim
+}
 
 // Embedder produces L2-normalized vectors.
 type Embedder interface {
@@ -38,4 +58,12 @@ func Cosine(a, b []float32) float32 {
 		sum += a[i] * b[i]
 	}
 	return sum
+}
+
+// Warm embeds a dummy string so a remote or ONNX backend fails fast at apply.
+func Warm(ctx context.Context, e Embedder) error {
+	if e == nil {
+		return fmt.Errorf("nil embedder")
+	}
+	return Probe(ctx, e)
 }

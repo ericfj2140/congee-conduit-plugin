@@ -4,8 +4,9 @@ go 1.24.1
 
 require (
 	github.com/jackc/pgx/v5 v5.7.2
-	github.com/michmich112/congee/sdk/plugin v0.0.0
+	github.com/michmich112/congee/sdk/plugin v0.1.0
 	github.com/tursodatabase/go-libsql v0.0.0-20260424063416-3051e37e6e04
+	github.com/yalue/onnxruntime_go v1.21.0
 )
 
 require (
@@ -24,5 +25,3 @@ require (
 	google.golang.org/grpc v1.75.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 )
-
-replace github.com/michmich112/congee/sdk/plugin => ../congee/sdk/plugin

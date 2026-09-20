@@ -1,5 +1,7 @@
 <script>
+	import InfoLabel from '../lib/InfoLabel.svelte';
 	import Switch from '../lib/Switch.svelte';
+	import Tooltip from '../lib/Tooltip.svelte';
 
 	let { settings } = $props();
 	let showAdvanced = $state(false);
@@ -7,9 +9,16 @@
 
 <section class="space-y-6">
 	<div>
-		<h2 class="text-lg font-medium text-neutral-900 dark:text-neutral-100">Search</h2>
+		<div class="flex items-center gap-1.5">
+			<h2 class="text-lg font-medium text-neutral-900 dark:text-neutral-100">Search</h2>
+			<Tooltip
+				label="About Search"
+				tip="Conduit never rewrites the kinds on a client's REQ. When a REQ already asks for product kinds and includes a search string or #g, Conduit answers with ranked listing event IDs from its index. A search with no kinds is left to the relay."
+			/>
+		</div>
 		<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-			When Conduit intercepts a REQ and how large a result set it will return.
+			When Conduit intercepts a product-kind REQ, it keeps the client's filter kinds and returns
+			ranked listing IDs from the index.
 		</p>
 	</div>
 
@@ -17,27 +26,32 @@
 		<Switch
 			bind:checked={settings.rank_all_product_reqs}
 			label="Rank all product REQs"
-			description="Apply Conduit ranking to product-kind REQs even when they have no search string."
-		/>
-		<Switch
-			bind:checked={settings.inject_product_kinds_on_search}
-			label="Inject product kinds on search"
-			description="When a REQ has a search string, add configured product kinds so marketplace listings are included."
+			description="If a REQ already asks for product kinds but has no search string (for example kinds:[30402]), still return Conduit's ranked listing IDs instead of the relay's newest-first query."
+			tip="Off (default): Conduit only ranks when the REQ has a search string or a #g geohash. On: even a bare product-kind REQ such as kinds 30402 is answered from the index order instead of the relay's created_at sort. Other kinds still pass through."
 		/>
 	</div>
 
 	<div class="grid gap-3 sm:grid-cols-2">
 		<label class="block space-y-1">
-			<span class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Max results</span>
+			<InfoLabel
+				text="Max results"
+				tip="Plugin ceiling on how many event IDs Conduit returns on intercept. 0 means no extra cap: honor the client's REQ limit, or 500 if the client omitted one. This is not a global marketplace size limit."
+			/>
 			<input
 				class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
 				type="number"
-				min="1"
+				min="0"
 				bind:value={settings.max_results}
 			/>
+			<span class="text-xs text-neutral-500 dark:text-neutral-400">
+				0 = no plugin cap (use the REQ limit, else 500).
+			</span>
 		</label>
 		<label class="block space-y-1">
-			<span class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Geo min prefix</span>
+			<InfoLabel
+				text="Geo min prefix"
+				tip="How many characters of a #g geohash are used for the SQL prefix match. Example: 2 turns 9q8yy into 9q%, which is a wide area. Matching rows are then sorted by distance from the full geohash. Shorter prefixes return more candidates."
+			/>
 			<input
 				class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
 				type="number"
@@ -45,7 +59,9 @@
 				max="12"
 				bind:value={settings.geo_min_prefix_len}
 			/>
-			<span class="text-xs text-neutral-500 dark:text-neutral-400">Shortest #g prefix that still filters.</span>
+			<span class="text-xs text-neutral-500 dark:text-neutral-400">
+				Characters of #g used for prefix match; then sort by distance.
+			</span>
 		</label>
 	</div>
 
@@ -59,16 +75,16 @@
 		</button>
 		{#if showAdvanced}
 			<label class="mt-3 block space-y-1">
-				<span class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Search candidate cap</span>
+				<InfoLabel
+					text="Search candidate cap"
+					tip="How many matching listings SQL may load before ranking. This is a performance bound, not the number of events sent to the client. After this prefetch, Conduit ranks (vector and/or geo) and then applies Max results / the REQ limit. Higher is more complete and more expensive."
+				/>
 				<input
 					class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
 					type="number"
 					min="1"
 					bind:value={settings.search_candidate_cap}
 				/>
-				<span class="text-xs text-neutral-500 dark:text-neutral-400">
-					Upper bound on listings considered before ranking. Lower is cheaper; higher is more complete.
-				</span>
 			</label>
 		{/if}
 	</div>

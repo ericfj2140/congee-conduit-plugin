@@ -4,6 +4,8 @@
 	import { cloneSettings, mergeSettings, settingsEqual } from './settings.js';
 	import Indexes from './pages/Indexes.svelte';
 	import Kinds from './pages/Kinds.svelte';
+	import Listings from './pages/Listings.svelte';
+	import Embeddings from './pages/Embeddings.svelte';
 	import Overview from './pages/Overview.svelte';
 	import Search from './pages/Search.svelte';
 	import Storage from './pages/Storage.svelte';
@@ -21,7 +23,9 @@
 		'/storage': 'storage',
 		'/indexes': 'indexes',
 		'/search': 'search',
-		'/kinds': 'kinds'
+		'/kinds': 'kinds',
+		'/listings': 'listings',
+		'/embeddings': 'embeddings'
 	};
 
 	function routeFromHash(h) {
@@ -48,6 +52,8 @@
 	let actionBusy = $state(false);
 	let testBusy = $state(false);
 	let testResult = $state('');
+	let embedTestBusy = $state(false);
+	let embedTestResult = $state('');
 
 	function onHashChange() {
 		hash = location.hash || '#/';
@@ -150,6 +156,57 @@
 		}
 	}
 
+	async function testEmbed() {
+		embedTestBusy = true;
+		embedTestResult = '';
+		try {
+			const res = await pluginApi('POST', PATHS.testEmbed, {
+				url: settings.embed_http_url,
+				model: settings.embed_http_model,
+				api_key: settings.embed_http_api_key,
+				dim: settings.embed_dim
+			});
+			const j = res.json || {};
+			if (res.status && res.status >= 400) {
+				embedTestResult = apiError(j, `Failed (${res.status})`);
+			} else if (j.ok === false) {
+				embedTestResult = j.error || 'Embedding probe failed';
+			} else {
+				settings.embed_provider = 'http';
+				embedTestResult = `Ok — ${j.dim || 384}-d (${j.model_id || 'http'}). Save to offload the on-device model.`;
+			}
+		} catch (e) {
+			embedTestResult = e instanceof Error ? e.message : 'test failed';
+		} finally {
+			embedTestBusy = false;
+		}
+	}
+
+	async function ensureAssets() {
+		embedTestBusy = true;
+		embedTestResult = '';
+		try {
+			const res = await pluginApi('POST', PATHS.ensureAssets, {
+				model_url: settings.embed_model_url,
+				runtime_url: settings.embed_runtime_url,
+				force: true
+			});
+			const j = res.json || {};
+			if (res.status && res.status >= 400) {
+				embedTestResult = apiError(j, `Failed (${res.status})`);
+			} else if (j.ok === false) {
+				embedTestResult = j.error || 'Download failed';
+			} else {
+				embedTestResult = 'Assets downloaded. Save settings if URLs changed.';
+				await loadAll();
+			}
+		} catch (e) {
+			embedTestResult = e instanceof Error ? e.message : 'download failed';
+		} finally {
+			embedTestBusy = false;
+		}
+	}
+
 	onMount(() => {
 		void loadAll();
 	});
@@ -157,9 +214,9 @@
 
 <svelte:window onhashchange={onHashChange} onmessage={onHostMessage} />
 
-<div class="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+<div class="flex min-h-screen flex-col bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
 	<header class="border-b border-neutral-200 bg-white/90 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/90">
-		<div class="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
+		<div class="flex w-full flex-col gap-3 px-6 py-4">
 			<div>
 				<h1 class="text-xl font-semibold tracking-tight">Conduit</h1>
 				<p class="text-sm text-neutral-500 dark:text-neutral-400">Marketplace index</p>
@@ -183,12 +240,36 @@
 		</div>
 	</header>
 
-	<main class="mx-auto max-w-3xl space-y-4 px-4 py-6 {dirty ? 'pb-28' : 'pb-10'}">
+	<main class="w-full flex-1 space-y-4 px-6 py-6 {dirty ? 'pb-28' : 'pb-10'}">
 		{#if ready === false}
 			<div
 				class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
 			>
 				REQs pass through until Ready
+			</div>
+		{/if}
+
+		{#if pluginStatus.embedder?.error || pluginStatus.embedder?.warning}
+			<div
+				class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+			>
+				<p class="font-medium">
+					Embedder: {pluginStatus.embedder.model_id || 'none'}
+					{#if pluginStatus.embedder.source}
+						<span class="font-normal text-amber-800 dark:text-amber-200">
+							({pluginStatus.embedder.source})</span
+						>
+					{/if}
+				</p>
+				{#if pluginStatus.embedder.error}
+					<p class="mt-1">{pluginStatus.embedder.error}</p>
+				{/if}
+				{#if pluginStatus.embedder.warning}
+					<p class="mt-1">{pluginStatus.embedder.warning}</p>
+				{/if}
+				<p class="mt-1 text-xs">
+					Vector ranking is {pluginStatus.embedder.vector_ranking ? 'on' : 'off'}.
+				</p>
 			</div>
 		{/if}
 
@@ -215,19 +296,31 @@
 		{:else if route === 'storage'}
 			<Storage {settings} {relayType} {testResult} {testBusy} ontest={testStore} />
 		{:else if route === 'indexes'}
-			<Indexes {settings} />
+			<Indexes
+				{settings}
+				embedder={pluginStatus.embedder}
+				assets={pluginStatus.assets}
+				testResult={embedTestResult}
+				testBusy={embedTestBusy}
+				ontest={testEmbed}
+				ondownload={ensureAssets}
+			/>
 		{:else if route === 'search'}
 			<Search {settings} />
 		{:else if route === 'kinds'}
 			<Kinds {settings} {resetKey} />
+		{:else if route === 'listings'}
+			<Listings />
+		{:else if route === 'embeddings'}
+			<Embeddings />
 		{/if}
 	</main>
 
 	{#if dirty}
 		<div
-			class="fixed inset-x-0 bottom-0 border-t border-neutral-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/95"
+			class="fixed inset-x-0 bottom-0 border-t border-neutral-200 bg-white/95 px-6 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/95"
 		>
-			<div class="mx-auto flex max-w-3xl items-center justify-between gap-3">
+			<div class="flex w-full items-center justify-between gap-3">
 				<p class="text-sm text-neutral-600 dark:text-neutral-300">Unsaved settings</p>
 				<div class="flex gap-2">
 					<button

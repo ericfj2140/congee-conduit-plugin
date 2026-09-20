@@ -184,16 +184,20 @@ ON CONFLICT(coord) DO UPDATE SET
 				return err
 			}
 		}
-		skipEmbed := false
-		if existingHash == l.TextHash {
-			err = s.db.QueryRowContext(ctx, `SELECT model FROM listing_embeddings WHERE coord = `+s.ph(1), l.Coord).Scan(&existingModel)
-			if err == nil && existingModel == s.embedder.ModelID() {
-				skipEmbed = true
-			}
-		}
 		if l.Status != listing.StatusActive {
 			s.ann.Delete(l.Coord)
 			return nil
+		}
+		if s.embedder == nil {
+			return nil
+		}
+		skipEmbed := false
+		var existingDim int
+		if existingHash == l.TextHash {
+			err = s.db.QueryRowContext(ctx, `SELECT model, dim FROM listing_embeddings WHERE coord = `+s.ph(1), l.Coord).Scan(&existingModel, &existingDim)
+			if err == nil && existingModel == s.embedder.ModelID() && existingDim == s.embedder.Dim() {
+				skipEmbed = true
+			}
 		}
 		var vec []float32
 		if skipEmbed {
@@ -314,8 +318,10 @@ func (s *sqlStore) Stats(ctx context.Context) (Stats, error) {
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listings WHERE status = 'active'`).Scan(&st.Active)
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listings WHERE status != 'active'`).Scan(&st.Inactive)
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listing_embeddings`).Scan(&st.Embeddings)
-	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listings l LEFT JOIN listing_embeddings e ON l.coord = e.coord
-WHERE l.status = 'active' AND (e.coord IS NULL OR e.model != `+s.ph(1)+`)`, s.embedder.ModelID()).Scan(&st.EmbeddingMismatch)
+	if s.embedder != nil {
+		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listings l LEFT JOIN listing_embeddings e ON l.coord = e.coord
+WHERE l.status = 'active' AND (e.coord IS NULL OR e.model != `+s.ph(1)+` OR e.dim != `+s.ph(2)+`)`, s.embedder.ModelID(), s.embedder.Dim()).Scan(&st.EmbeddingMismatch)
+	}
 	return st, nil
 }
 
@@ -340,6 +346,52 @@ WHERE l.status = 'active'`)
 	}
 	s.ann.Replace(items)
 	return rows.Err()
+}
+
+func (s *sqlStore) PurgeKindsNotIn(ctx context.Context, keep []int) error {
+	if len(keep) == 0 {
+		return nil
+	}
+	return s.runWrite(func() error {
+		phs := make([]string, len(keep))
+		args := make([]any, len(keep))
+		for i, k := range keep {
+			phs[i] = s.ph(i + 1)
+			args[i] = k
+		}
+		q := `SELECT coord FROM listings WHERE kind NOT IN (` + strings.Join(phs, ",") + `)`
+		rows, err := s.db.QueryContext(ctx, q, args...)
+		if err != nil {
+			return err
+		}
+		var coords []string
+		for rows.Next() {
+			var c string
+			if err := rows.Scan(&c); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			coords = append(coords, c)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		_ = rows.Close()
+		for _, coord := range coords {
+			if _, err := s.db.ExecContext(ctx, `DELETE FROM listing_embeddings WHERE coord = `+s.ph(1), coord); err != nil {
+				return err
+			}
+			if _, err := s.db.ExecContext(ctx, `DELETE FROM listing_geo WHERE coord = `+s.ph(1), coord); err != nil {
+				return err
+			}
+			if _, err := s.db.ExecContext(ctx, `DELETE FROM listings WHERE coord = `+s.ph(1), coord); err != nil {
+				return err
+			}
+			s.ann.Delete(coord)
+		}
+		return nil
+	})
 }
 
 func placeholders(s *sqlStore, n int) string {

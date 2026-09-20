@@ -3,8 +3,8 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -14,10 +14,15 @@ import (
 	sdk "github.com/michmich112/congee/sdk/plugin"
 )
 
+// Version is the plugin release, injected at link time:
+//
+//	go build -ldflags "-X github.com/michmich112/conduit-plugin/handler.Version=0.1.0"
+var Version = "0.1.0-dev"
+
 // Handler implements sdk.Handler for Conduit.
 type Handler struct {
 	dataDir  string
-	embedder embed.Embedder
+	embedSel embed.Selection
 
 	mu              sync.RWMutex
 	settings        Settings
@@ -36,10 +41,10 @@ type Handler struct {
 	reshapeN     atomic.Int64
 }
 
-func New(dataDir string, e embed.Embedder) *Handler {
+func New(dataDir string, sel embed.Selection) *Handler {
 	return &Handler{
 		dataDir:       dataDir,
-		embedder:      e,
+		embedSel:      sel,
 		settings:      defaultSettings(),
 		backfillState: "idle",
 	}
@@ -54,11 +59,11 @@ func (h *Handler) Handshake(ctx context.Context, settings json.RawMessage) (*sdk
 	h.startBackfill(context.WithoutCancel(ctx))
 	h.mu.RLock()
 	st := h.settings
-	h.mu.RUnlock()
+	defer h.mu.RUnlock()
 	return &sdk.HandshakeResult{
 		PluginID:            "conduit",
 		Name:                "Conduit",
-		Version:             "0.1.0",
+		Version:             Version,
 		Capabilities:        []string{sdk.CapIntercept, sdk.CapEventsRead, sdk.CapIndexOwn, sdk.CapAdminUI},
 		Subscriptions:       subscriptionsFor(st),
 		InterceptDeadlineMs: 200,
@@ -136,7 +141,7 @@ func (h *Handler) InterceptREQ(ctx context.Context, req sdk.Req) (*sdk.Intercept
 		GeoMinPrefixLen:    st.GeoMinPrefixLen,
 		SearchCandidateCap: st.SearchCandidateCap,
 		ActiveOnly:         st.ActiveFilter,
-		VectorEnabled:      st.VectorEnabled,
+		VectorEnabled:      st.VectorEnabled && h.embedSel.VectorRanking(),
 		GeoEnabled:         st.GeoEnabled,
 	}
 	if d.kind == decRespondGeo {
@@ -171,8 +176,12 @@ func (h *Handler) AdminAction(ctx context.Context, name string, payload json.Raw
 	switch name {
 	case "rebuild":
 		h.mu.Lock()
+		store := h.store
 		h.backfillStarted = false
 		h.mu.Unlock()
+		if store != nil {
+			_ = store.SetMeta(ctx, metaWatermark, "")
+		}
 		h.startBackfill(context.WithoutCancel(ctx))
 		return json.Marshal(map[string]any{"ok": true})
 	case "test_store":
@@ -186,6 +195,16 @@ func (h *Handler) AdminAction(ctx context.Context, name string, payload json.Raw
 			return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
 		}
 		return json.Marshal(map[string]any{"ok": true})
+	case "test_embed":
+		return h.testEmbed(ctx, payload)
+	case "ensure_assets":
+		return h.ensureAssets(ctx, payload)
+	case "list_listings":
+		return h.listListings(ctx, payload)
+	case "list_embeddings":
+		return h.listEmbeddings(ctx, payload)
+	case "get_event":
+		return h.getEvent(ctx, payload)
 	default:
 		_ = payload
 		return json.Marshal(map[string]any{"ok": false, "error": "unknown action"})
@@ -198,6 +217,7 @@ func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
 	ready := h.ready
 	store := h.store
 	bf := h.backfillState
+	sel := h.embedSel
 	h.mu.RUnlock()
 	stats := index.Stats{Backend: st.IndexBackend}
 	if store != nil {
@@ -217,6 +237,19 @@ func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
 		"respond_n":          h.respondN.Load(),
 		"reshape_n":          h.reshapeN.Load(),
 		"settings":           st.redacted(),
+		"assets":             embed.InspectAssets(h.dataDir),
+		"embedder": map[string]any{
+			"model_id":       sel.ModelID,
+			"source":         sel.Source,
+			"error":          sel.Error,
+			"warning":        sel.Warning,
+			"dim":            sel.Dim,
+			"required_dim":   st.EmbedDim,
+			"default_dim":    embed.DefaultDim,
+			"provider":       st.EmbedProvider,
+			"http_verified":  sel.Source == embed.SourceHTTP,
+			"vector_ranking": sel.VectorRanking() && st.VectorEnabled,
+		},
 	})
 	return &sdk.Status{Ready: ready, JSON: body}, nil
 }
@@ -226,26 +259,40 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 	if err != nil {
 		return err
 	}
-	pw, _ := loadSecrets(h.dataDir)
+	h.mu.RLock()
+	old := h.settings
+	h.mu.RUnlock()
+	sec, _ := loadSecretsFile(h.dataDir)
 	if st.PostgresPassword != "" {
-		_ = saveSecrets(h.dataDir, st.PostgresPassword)
-		pw = st.PostgresPassword
+		sec.PostgresPassword = st.PostgresPassword
 		st.PostgresPassword = ""
 	}
-	e := h.embedder
-	if e == nil || os.Getenv("CONDUIT_EMBEDDER") == "fake" {
-		e = embed.Fake{}
-		h.embedder = e
+	if st.EmbedHTTPAPIKey != "" {
+		sec.EmbedHTTPAPIKey = st.EmbedHTTPAPIKey
+		st.EmbedHTTPAPIKey = ""
 	}
-	if err := embed.Warm(ctx, e); err != nil {
-		h.mu.Lock()
-		h.lastErr = err.Error()
-		h.embedWarm = false
-		h.ready = false
-		h.mu.Unlock()
-		return err
+	_ = saveSecretsFile(h.dataDir, sec)
+	h.embedSel = embed.SelectWith(embed.SelectOpts{
+		ModelPath:        embed.DefaultModelPath(h.dataDir),
+		Provider:         st.EmbedProvider,
+		HTTPURL:          st.EmbedHTTPURL,
+		HTTPModel:        st.EmbedHTTPModel,
+		HTTPKey:          sec.EmbedHTTPAPIKey,
+		SavedFingerprint: sec.EmbedHTTPFingerprint,
+		Dim:              st.EmbedDim,
+	})
+	e := h.embedSel.Embedder
+	if e != nil {
+		if err := embed.Warm(ctx, e); err != nil {
+			h.mu.Lock()
+			h.lastErr = err.Error()
+			h.embedWarm = false
+			h.ready = false
+			h.mu.Unlock()
+			return err
+		}
 	}
-	store, err := h.openStore(ctx, st, pw, e)
+	store, err := h.openStore(ctx, st, sec.PostgresPassword, e)
 	if err != nil {
 		h.mu.Lock()
 		h.lastErr = err.Error()
@@ -261,10 +308,41 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 	h.store = store
 	h.settings = st
 	h.storeOpen = true
-	h.embedWarm = true
+	h.embedWarm = e != nil
 	h.ready = true
 	h.lastErr = ""
 	h.mu.Unlock()
+	keep := listing.DefaultStallKinds()
+	keep = append(keep, listing.DefaultProductKinds()...)
+	keep = append(keep, listing.DefaultDraftKinds()...)
+	keep = append(keep, listing.DefaultDeletionKinds()...)
+	if err := store.PurgeKindsNotIn(ctx, keep); err != nil {
+		h.log(ctx, "warn", "purge non-marketplace kinds", map[string]string{"error": err.Error()})
+	}
+	reembed := !opening && (old.EmbedDim != st.EmbedDim ||
+		old.EmbedProvider != st.EmbedProvider ||
+		old.EmbedHTTPURL != st.EmbedHTTPURL ||
+		old.EmbedHTTPModel != st.EmbedHTTPModel ||
+		old.EmbedModelURL != st.EmbedModelURL)
+	if reembed {
+		_ = store.SetMeta(ctx, metaWatermark, "")
+		h.mu.Lock()
+		h.backfillStarted = false
+		h.mu.Unlock()
+		h.startBackfill(context.WithoutCancel(ctx))
+	}
+	if e == nil {
+		h.log(ctx, "warn", "embedder unavailable", map[string]string{
+			"error":   h.embedSel.Error,
+			"warning": h.embedSel.Warning,
+		})
+	} else if h.embedSel.Warning != "" {
+		h.log(ctx, "info", "embedder selected", map[string]string{
+			"source":  h.embedSel.Source,
+			"model":   h.embedSel.ModelID,
+			"warning": h.embedSel.Warning,
+		})
+	}
 	_ = opening
 	return nil
 }
@@ -275,6 +353,189 @@ func (h *Handler) openStore(ctx context.Context, st Settings, password string, e
 	}
 	path := filepath.Join(h.dataDir, "conduit-index.db")
 	return index.OpenTurso(ctx, path, e)
+}
+
+type listPayload struct {
+	Limit  int    `json:"limit"`
+	Offset int    `json:"offset"`
+	Status string `json:"status"`
+}
+
+func (h *Handler) listListings(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	h.mu.RLock()
+	store := h.store
+	h.mu.RUnlock()
+	if store == nil {
+		return json.Marshal(map[string]any{"ok": false, "error": "store not open"})
+	}
+	var p listPayload
+	_ = json.Unmarshal(payload, &p)
+	page, err := store.ListListings(ctx, index.ListQuery{Limit: p.Limit, Offset: p.Offset, Status: p.Status})
+	if err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
+	}
+	return json.Marshal(map[string]any{"ok": true, "items": page.Items, "total": page.Total})
+}
+
+func (h *Handler) listEmbeddings(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	h.mu.RLock()
+	store := h.store
+	h.mu.RUnlock()
+	if store == nil {
+		return json.Marshal(map[string]any{"ok": false, "error": "store not open"})
+	}
+	var p listPayload
+	_ = json.Unmarshal(payload, &p)
+	page, err := store.ListEmbeddings(ctx, index.ListQuery{Limit: p.Limit, Offset: p.Offset})
+	if err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
+	}
+	return json.Marshal(map[string]any{"ok": true, "items": page.Items, "total": page.Total})
+}
+
+func (h *Handler) getEvent(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	var p struct {
+		ID    string `json:"id"`
+		Coord string `json:"coord"`
+	}
+	_ = json.Unmarshal(payload, &p)
+	id := strings.ToLower(strings.TrimSpace(p.ID))
+	if id == "" && strings.TrimSpace(p.Coord) != "" {
+		h.mu.RLock()
+		store := h.store
+		h.mu.RUnlock()
+		if store != nil {
+			if l, ok, err := store.Get(ctx, p.Coord); err == nil && ok {
+				id = strings.ToLower(strings.TrimSpace(l.EventID))
+			}
+		}
+	}
+	if id == "" {
+		return json.Marshal(map[string]any{
+			"ok": false, "missing": true,
+			"error": "This index row has no event id. The listing may have been removed from the index.",
+		})
+	}
+	if len(id) != 64 {
+		return json.Marshal(map[string]any{"ok": false, "error": "invalid event id"})
+	}
+	if h.host == nil {
+		return json.Marshal(map[string]any{"ok": false, "error": "host unavailable"})
+	}
+	evs, err := h.host.GetEventsByIDs(ctx, []string{id})
+	if err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
+	}
+	if len(evs) == 0 {
+		return json.Marshal(map[string]any{"ok": false, "missing": true, "id": id, "error": "not in relay event store"})
+	}
+	return json.Marshal(map[string]any{"ok": true, "event": evs[0]})
+}
+
+func (h *Handler) testEmbed(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	var p struct {
+		URL    string `json:"url"`
+		Model  string `json:"model"`
+		APIKey string `json:"api_key"`
+		Dim    int    `json:"dim"`
+	}
+	_ = json.Unmarshal(payload, &p)
+	h.mu.RLock()
+	st := h.settings
+	h.mu.RUnlock()
+	url := strings.TrimSpace(p.URL)
+	if url == "" {
+		url = st.EmbedHTTPURL
+	}
+	model := strings.TrimSpace(p.Model)
+	if model == "" {
+		model = st.EmbedHTTPModel
+	}
+	dim := p.Dim
+	if dim <= 0 {
+		dim = st.EmbedDim
+	}
+	sec, err := loadSecretsFile(h.dataDir)
+	if err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
+	}
+	key := p.APIKey
+	if strings.TrimSpace(key) == "" {
+		key = sec.EmbedHTTPAPIKey
+	}
+	if url == "" {
+		return json.Marshal(map[string]any{"ok": false, "error": "url required"})
+	}
+	e := embed.NewHTTP(url, model, key, dim)
+	if err := embed.Probe(ctx, e); err != nil {
+		return json.Marshal(map[string]any{
+			"ok":           false,
+			"error":        err.Error(),
+			"required_dim": dim,
+		})
+	}
+	sec.EmbedHTTPFingerprint = embed.HTTPFingerprint(url, model, key, dim)
+	if strings.TrimSpace(p.APIKey) != "" {
+		sec.EmbedHTTPAPIKey = p.APIKey
+	}
+	if err := saveSecretsFile(h.dataDir, sec); err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
+	}
+	return json.Marshal(map[string]any{
+		"ok":           true,
+		"dim":          e.Dim(),
+		"required_dim": e.Dim(),
+		"model_id":     e.ModelID(),
+	})
+}
+
+func (h *Handler) ensureAssets(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	var p struct {
+		Force      bool   `json:"force"`
+		ModelURL   string `json:"model_url"`
+		RuntimeURL string `json:"runtime_url"`
+	}
+	_ = json.Unmarshal(payload, &p)
+	h.mu.RLock()
+	st := h.settings
+	h.mu.RUnlock()
+	modelURL := strings.TrimSpace(p.ModelURL)
+	if modelURL == "" {
+		modelURL = st.EmbedModelURL
+	}
+	runtimeURL := strings.TrimSpace(p.RuntimeURL)
+	if runtimeURL == "" {
+		runtimeURL = st.EmbedRuntimeURL
+	}
+	status, err := embed.EnsureAssets(ctx, embed.AssetOpts{
+		DataDir:    h.dataDir,
+		ModelURL:   modelURL,
+		RuntimeURL: runtimeURL,
+		Force:      p.Force,
+	})
+	if err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error(), "assets": status})
+	}
+	return json.Marshal(map[string]any{"ok": true, "assets": status})
+}
+
+// RunLifecycleHook is --hook=install / --hook=launch: download assets, never panic.
+func RunLifecycleHook(ctx context.Context, dataDir, settingsJSON string) error {
+	st, err := parseSettings(json.RawMessage(settingsJSON))
+	if err != nil {
+		st = defaultSettings()
+	}
+	_, err = embed.EnsureAssets(ctx, embed.AssetOpts{
+		DataDir:    dataDir,
+		ModelURL:   st.EmbedModelURL,
+		RuntimeURL: st.EmbedRuntimeURL,
+	})
+	return err
+}
+
+// RunUninstallHook is --hook=uninstall: delete downloaded MiniLM / ORT blobs only.
+func RunUninstallHook(dataDir string) error {
+	return embed.RemoveDownloadedAssets(dataDir)
 }
 
 func (h *Handler) log(ctx context.Context, level, msg string, fields map[string]string) {
