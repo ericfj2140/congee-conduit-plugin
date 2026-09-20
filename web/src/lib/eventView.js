@@ -1,30 +1,50 @@
+import catalog from '../../../kinds.json';
+
+const entries = Array.isArray(catalog?.kinds) ? catalog.kinds : [];
+const byKind = new Map(entries.map((k) => [k.kind, k]));
+
+function rolesOf(kind) {
+	const e = byKind.get(kind);
+	return Array.isArray(e?.roles) ? e.roles : [];
+}
+
+export function kindsForRole(role) {
+	return entries.filter((k) => Array.isArray(k.roles) && k.roles.includes(role)).map((k) => k.kind);
+}
+
+export function defaultKindsForRoles(roles) {
+	const seen = new Set();
+	const out = [];
+	for (const role of roles) {
+		for (const n of kindsForRole(role)) {
+			if (seen.has(n)) continue;
+			seen.add(n);
+			out.push(n);
+		}
+	}
+	return out;
+}
+
 export function kindRole(kind) {
-	if (kind === 30017 || kind === 34550) return 'stall';
-	if (kind === 30018 || kind === 34560) return 'product';
-	if (kind === 30402) return 'listing';
-	if (kind === 30403) return 'draft';
+	const roles = rolesOf(kind);
+	if (roles.includes('stall')) return 'stall';
+	if (roles.includes('product')) return 'product';
+	if (roles.includes('listing')) return 'listing';
+	if (roles.includes('listing_draft')) return 'draft';
+	if (roles.includes('community')) return 'community';
+	if (roles.includes('deletion')) return 'deletion';
 	return 'other';
 }
 
 export function kindLabel(kind) {
-	switch (kind) {
-		case 30017:
-			return 'Stall';
-		case 34550:
-			return 'Stall';
-		case 30018:
-			return 'Product';
-		case 34560:
-			return 'Product';
-		case 30402:
-			return 'Listing';
-		case 30403:
-			return 'Draft listing';
-		case 5:
-			return 'Deletion';
-		default:
-			return kind ? `Kind ${kind}` : 'Unknown';
-	}
+	const e = byKind.get(kind);
+	if (e?.name) return e.name;
+	return kind ? `Kind ${kind}` : 'Unknown';
+}
+
+export function kindDescription(kind) {
+	const e = byKind.get(kind);
+	return e?.description || '';
 }
 
 export function displayTitle(row) {
@@ -65,4 +85,10 @@ export function isHttpUrl(s) {
 	} catch {
 		return false;
 	}
+}
+
+export function defaultKindTip(role, extra = '') {
+	const ns = kindsForRole(role);
+	const names = ns.map((n) => `${n} (${kindLabel(n)})`).join(', ');
+	return names ? `Defaults from kinds.json: ${names}. ${extra}`.trim() : extra;
 }

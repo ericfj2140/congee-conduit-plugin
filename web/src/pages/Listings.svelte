@@ -78,7 +78,7 @@
 				<h2 class="text-lg font-medium text-neutral-900 dark:text-neutral-100">Listings</h2>
 				<Tooltip
 					label="About Listings"
-					tip="Every marketplace document Conduit parsed into its own index (separate from the relay event store and from Congee Audit). Includes NIP-15 stalls (30017/34550), products (30018/34560), and NIP-99 classifieds (30402). Click a row to fetch the event from the relay and open a stall-, product-, or listing-specific view. Title is the parsed name; stalls without a JSON name show the d-tag slug."
+					tip="Every marketplace document Conduit parsed into its own index (separate from the relay event store and from Congee Audit). Includes NIP-15 stalls (30017), products (30018), and NIP-99 classifieds (30402). Kind 34550 is a NIP-72 community definition and is not indexed as a stall. Click a row to fetch the event from the relay."
 				/>
 			</div>
 			<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
@@ -123,7 +123,7 @@
 					<th class="px-3 py-2 font-medium">
 						<InfoLabel
 							text="Type"
-							tip="Stall (30017/34550) is a shop record (currency, shipping). Product (30018/34560) is an item in a stall. Listing (30402) is a NIP-99 classified. They share this table because Conduit indexes all of them."
+							tip="Stall (30017) is a NIP-15 shop record. Product (30018) is a NIP-15 item. Listing (30402) is a NIP-99 classified. Kind 34550 is a NIP-72 community, not a stall."
 						/>
 					</th>
 					<th class="px-3 py-2 font-medium">

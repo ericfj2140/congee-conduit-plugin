@@ -196,6 +196,30 @@
 			</div>
 		{/if}
 
+		{#if pluginStatus.embedder?.error || pluginStatus.embedder?.warning}
+			<div
+				class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+			>
+				<p class="font-medium">
+					Embedder: {pluginStatus.embedder.model_id || 'none'}
+					{#if pluginStatus.embedder.source}
+						<span class="font-normal text-amber-800 dark:text-amber-200">
+							({pluginStatus.embedder.source})</span
+						>
+					{/if}
+				</p>
+				{#if pluginStatus.embedder.error}
+					<p class="mt-1">{pluginStatus.embedder.error}</p>
+				{/if}
+				{#if pluginStatus.embedder.warning}
+					<p class="mt-1">{pluginStatus.embedder.warning}</p>
+				{/if}
+				<p class="mt-1 text-xs">
+					Vector ranking is {pluginStatus.embedder.vector_ranking ? 'on' : 'off'}.
+				</p>
+			</div>
+		{/if}
+
 		{#if loadError}
 			<div
 				class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"

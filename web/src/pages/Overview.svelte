@@ -19,7 +19,7 @@
 			<h2 class="text-lg font-medium text-neutral-900 dark:text-neutral-100">Overview</h2>
 			<Tooltip
 				label="About Overview"
-				tip="Counts come from the Conduit index database (conduit-index.db or Postgres), not from Congee Audit → Events. Audit is the relay activity log. Listings include stalls (kind 34550/30017), products, and classifieds that were backfilled from the relay or stored live. Embeddings are vector rows used for search rank — Title is the parsed name (or d-tag when a stall has no JSON name), Model is the embedder id (fake-bow-384 is the test bag-of-words embedder). Click Listings or Embeddings, then a row, to load the event from the relay."
+				tip="Counts come from the Conduit index database (conduit-index.db or Postgres), not from Congee Audit → Events. Audit is the relay activity log; with a kind filter it also lists stored relay events. Listings include NIP-15 stalls (30017), products (30018), and classifieds. Kind 34550 is a NIP-72 community, not a stall. Embeddings are vector rows — Model fake-bow-384 is the test embedder used only when CONDUIT_EMBEDDER=fake."
 			/>
 		</div>
 		<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
@@ -64,7 +64,7 @@
 				Embeddings
 				<Tooltip
 					label="About Embeddings count"
-					tip="Number of stored search vectors. Two rows can be two stalls (kind 34550) that were backfilled from the relay. They will not appear under Audit unless you filter that kind. Click through to inspect each event."
+					tip="Number of stored search vectors. Leftover rows from an older index (for example kind 34550 community definitions that were mis-labeled as stalls) are removed on the next settings apply or rebuild."
 				/>
 			</div>
 			<div class="mt-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">
@@ -77,7 +77,7 @@
 				Backfill
 				<Tooltip
 					label="About Backfill"
-					tip="Startup scan of existing relay events into the Conduit index. idle means the scan finished or has not started. Listings and embeddings can appear after backfill even on a 'fresh' plugin if the relay already had stall/product events."
+					tip="Startup scan of existing relay events into the Conduit index. idle means the scan finished or has not started. Listings and embeddings can appear after backfill if the relay already had stall/product events. Kind 34550 communities are not marketplace documents."
 				/>
 			</div>
 			<div class="mt-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">

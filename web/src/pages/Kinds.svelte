@@ -2,8 +2,20 @@
 	import ChipInput from '../lib/ChipInput.svelte';
 	import Switch from '../lib/Switch.svelte';
 	import Tooltip from '../lib/Tooltip.svelte';
+	import { defaultKindTip, kindsForRole } from '../lib/eventView.js';
 
 	let { settings, resetKey = 0 } = $props();
+
+	const productTip = defaultKindTip(
+		'product',
+		`Also ${kindsForRole('listing').join(', ') || '30402'} (classified listings). A REQ that already includes these kinds can be ranked from the index. Kind 34550 is a NIP-72 community definition, not a product.`
+	);
+	const stallTip = defaultKindTip(
+		'stall',
+		'These are NIP-15 shop records (name, currency, shipping), not classified listings and not NIP-72 communities. Kind 34550 is a community definition.'
+	);
+	const draftTip = defaultKindTip('listing_draft', 'Stored as inactive unless Index drafts is enabled.');
+	const deletionTip = defaultKindTip('deletion', 'Matching e/a tags mark indexed listings inactive so they drop out of search.');
 </script>
 
 <section class="space-y-6">
@@ -26,25 +38,25 @@
 			bind:values={settings.product_kinds}
 			label="Product kinds"
 			description="NIP-15 products and NIP-99 classified listings ranked on intercept."
-			tip="Defaults: 30018 and 34560 (NIP-15 products), 30402 (NIP-99 classified). A REQ that already includes these kinds can be ranked from the index. Kind 34550 is a stall, not a product — that belongs under Stall kinds."
+			tip={productTip}
 		/>
 		<ChipInput
 			bind:values={settings.stall_kinds}
 			label="Stall kinds"
-			description="Merchant stall documents. Indexed and shown in Listings / Embeddings; not the same as a classified listing."
-			tip="Defaults: 30017 and 34550 (NIP-15 stall). These are shop records (name, currency, shipping), not product listings. They often have no title tag, so the table Title column may fall back to the d-tag."
+			description="Merchant stall documents (NIP-15 kind 30017). Indexed and shown in Listings / Embeddings; not a classified listing or a NIP-72 community."
+			tip={stallTip}
 		/>
 		<ChipInput
 			bind:values={settings.draft_kinds}
 			label="Draft kinds"
 			description="Draft listings. Indexed only when Index drafts is on."
-			tip="Default 30403 (NIP-99 draft). Stored as inactive unless Index drafts is enabled."
+			tip={draftTip}
 		/>
 		<ChipInput
 			bind:values={settings.deletion_kinds}
 			label="Deletion kinds"
 			description="Deletion events that remove listings from the index."
-			tip="Default kind 5 (NIP-09). Matching e/a tags mark indexed listings inactive so they drop out of search."
+			tip={deletionTip}
 		/>
 	{/key}
 

@@ -1,13 +1,15 @@
+import { defaultKindsForRoles } from './lib/eventView.js';
+
 export function defaultSettings() {
 	return {
 		index_backend: 'turso',
 		postgres_url: '',
 		postgres_user: '',
 		postgres_password: '',
-		product_kinds: [30018, 34560, 30402],
-		stall_kinds: [30017, 34550],
-		draft_kinds: [30403],
-		deletion_kinds: [5],
+		product_kinds: defaultKindsForRoles(['product', 'listing']),
+		stall_kinds: defaultKindsForRoles(['stall']),
+		draft_kinds: defaultKindsForRoles(['listing_draft']),
+		deletion_kinds: defaultKindsForRoles(['deletion']),
 		index_drafts: false,
 		geo_enabled: true,
 		vector_enabled: true,

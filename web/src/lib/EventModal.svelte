@@ -57,14 +57,32 @@
 		};
 	}
 
+	function communityOf(event) {
+		if (roleOf(event) !== 'community') return null;
+		const tags = Array.isArray(event?.tags) ? event.tags : [];
+		const pTags = tags.filter((t) => Array.isArray(t) && t[0] === 'p' && t[1]);
+		const marked = pTags.filter((t) => t[3] === 'moderator' || t.includes('moderator'));
+		const mods = (marked.length ? marked : pTags).map((t) => t[1]);
+		return {
+			name: tagValues(tags, 'name')[0] || '',
+			description: tagValues(tags, 'description')[0] || '',
+			image: tagValues(tags, 'image').filter(isHttpUrl)[0] || '',
+			rules: tagValues(tags, 'rules')[0] || '',
+			d: tagValues(tags, 'd')[0] || '',
+			moderators: mods
+		};
+	}
+
 	function headingOf(event) {
 		const role = roleOf(event);
 		const stall = stallOf(event);
 		const product = productOf(event);
 		const listingTags = listingTagsOf(event);
+		const community = communityOf(event);
 		if (role === 'stall') return stall?.name || tagValues(event?.tags, 'd')[0] || 'Stall';
 		if (role === 'product') return product?.name || 'Product';
 		if (role === 'listing' || role === 'draft') return listingTags.title || 'Classified listing';
+		if (role === 'community') return community?.name || community?.d || 'Community';
 		return kindLabel(event?.kind);
 	}
 
@@ -125,6 +143,7 @@
 					{const stall = stallOf(event)}
 					{const product = productOf(event)}
 					{const listingTags = listingTagsOf(event)}
+					{const community = communityOf(event)}
 					{const productImages = Array.isArray(product?.images)
 						? product.images.filter(isHttpUrl)
 						: []}
@@ -156,9 +175,10 @@
 							<p class="text-sm text-red-700 dark:text-red-300">{result.error}</p>
 							{#if result.missing}
 								<p class="text-sm text-neutral-500 dark:text-neutral-400">
-									Congee Audit → Events is the relay audit log, not a marketplace catalog. These rows
-									are kind 30017 / 34550 stalls (shops) or 30018 / 30402 products and classifieds.
-									Filter Audit by that kind, or click a Conduit row to load the event here.
+									This index row is not in the relay event store. It may have been deleted, or it is
+									leftover from an earlier index (for example a kind that is no longer a stall or
+									product). Congee Audit → Events is the relay activity log; stored events are a
+									separate table on that page.
 								</p>
 							{/if}
 						{:else if role === 'stall'}
@@ -231,6 +251,39 @@
 									</div>
 								{/if}
 							</dl>
+						{:else if role === 'community'}
+							{#if community?.image}
+								<img class="h-24 w-24 rounded-md object-cover" src={community.image} alt="" />
+							{/if}
+							{#if community?.description}
+								<p class="text-sm whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">
+									{community.description}
+								</p>
+							{/if}
+							<dl class="grid gap-3 text-sm sm:grid-cols-2">
+								<div>
+									<dt class="text-xs text-neutral-500 uppercase">Identifier</dt>
+									<dd class="mt-0.5 break-all font-mono text-neutral-800 dark:text-neutral-200">
+										{community?.d || '—'}
+									</dd>
+								</div>
+								{#if community?.moderators?.length}
+									<div class="sm:col-span-2">
+										<dt class="text-xs text-neutral-500 uppercase">Moderators</dt>
+										<dd class="mt-0.5 break-all font-mono text-xs text-neutral-800 dark:text-neutral-200">
+											{community.moderators.join(', ')}
+										</dd>
+									</div>
+								{/if}
+							</dl>
+							{#if community?.rules}
+								<div>
+									<p class="text-xs text-neutral-500 uppercase">Rules</p>
+									<p class="mt-1 text-sm whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">
+										{community.rules}
+									</p>
+								</div>
+							{/if}
 						{:else if role === 'listing' || role === 'draft'}
 							{#if listingTags.images.length}
 								<div class="flex flex-wrap gap-2">

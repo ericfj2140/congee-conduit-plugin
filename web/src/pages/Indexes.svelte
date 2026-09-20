@@ -36,7 +36,7 @@
 			bind:checked={settings.vector_enabled}
 			label="Vector rank"
 			description="Rank by embeddings when the REQ has a search string. Requires embeddings to be warm."
-			tip="Search text is embedded with the same model as listings (fake-bow-384 unless an ONNX model is loaded). Cosine similarity orders candidates. If embeddings are missing, Conduit falls back to newest-first among the SQL candidates."
+			tip="Search text is embedded with the configured model. Vector rank is off unless a real ONNX model loaded, or the operator set CONDUIT_EMBEDDER=fake for the test bag-of-words embedder. Cosine similarity orders candidates. If embeddings are missing, Conduit falls back to newest-first among the SQL candidates."
 		/>
 	</div>
 </section>

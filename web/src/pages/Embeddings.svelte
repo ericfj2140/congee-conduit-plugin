@@ -70,7 +70,7 @@
 			<h2 class="text-lg font-medium text-neutral-900 dark:text-neutral-100">Embeddings</h2>
 			<Tooltip
 				label="About Embeddings"
-				tip="Each row is a search vector in the Conduit index, not a Congee Audit → Events log line. Audit is connection activity; this table is marketplace documents Conduit embedded for ranking. Kind 34550 is a NIP-15 stall (a shop), so it will not show up if you browse classified listings (30402) in Audit. Click a row to fetch that event from the relay store and open a stall-, product-, or listing-specific view."
+				tip="Each row is a search vector in the Conduit index, not a Congee Audit → Events log line. Audit is connection activity plus, when you filter by kind, stored relay events. Kind 34550 is a NIP-72 community definition, not a NIP-15 stall. Click a row to fetch that event from the relay store."
 			/>
 		</div>
 		<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
@@ -100,7 +100,7 @@
 					<th class="px-3 py-2 font-medium">
 						<InfoLabel
 							text="Type"
-							tip="Stall = NIP-15 shop (30017 or parameterized 34550). Product = NIP-15 item (30018 / 34560). Listing = NIP-99 classified (30402). Kind 34550 is a stall, not a classified listing."
+							tip="Type comes from kinds.json. Stall = NIP-15 shop (30017). Product = NIP-15 item (30018). Listing = NIP-99 classified (30402). Community = NIP-72 kind 34550, which is not a stall."
 						/>
 					</th>
 					<th class="px-3 py-2 font-medium">
@@ -112,7 +112,7 @@
 					<th class="px-3 py-2 font-medium">
 						<InfoLabel
 							text="Model"
-							tip="Which embedder wrote this vector. fake-bow-384 is Conduit's built-in test embedder (CONDUIT_EMBEDDER=fake, or no ONNX file loaded). It hashes words into a 384-dimension bag-of-words vector for ranking tests — not a neural semantic model. Production ranking uses the ONNX ModelID after you load a real model and rebuild."
+							tip="Which embedder wrote this vector. fake-bow-384 is Conduit's test bag-of-words embedder. It is used only when CONDUIT_EMBEDDER=fake. If that env is unset, a missing or unlinked ONNX model disables vector rank instead of silently faking a production embedder."
 						/>
 					</th>
 					<th class="px-3 py-2 font-medium">
