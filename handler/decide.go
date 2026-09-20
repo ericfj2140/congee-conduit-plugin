@@ -42,20 +42,17 @@ func decide(req sdk.Req, st Settings, ready bool) decision {
 			}
 		}
 		kindsEmpty := len(f.Kinds) == 0
-		hitsProduct := kindsEmpty
+		hitsProduct := false
 		hitsStall := false
-		if !kindsEmpty {
-			hitsProduct = false
-			for _, k := range f.Kinds {
-				if product[k] {
-					hitsProduct = true
-				}
-				if stall[k] {
-					hitsStall = true
-				}
-				if all[k] {
-					// indexed kind
-				}
+		for _, k := range f.Kinds {
+			if product[k] {
+				hitsProduct = true
+			}
+			if stall[k] {
+				hitsStall = true
+			}
+			if all[k] {
+				// indexed kind
 			}
 		}
 		_ = hitsStall
@@ -150,8 +147,19 @@ func kindsForSearch(f sdk.Filter, st Settings) []int {
 }
 
 func mergeLimit(f sdk.Filter, max int) int {
-	if f.Limit != nil && *f.Limit > 0 && *f.Limit < max {
-		return *f.Limit
+	const fallback = 500
+	reqLimit := 0
+	if f.Limit != nil && *f.Limit > 0 {
+		reqLimit = *f.Limit
+	}
+	if max <= 0 {
+		if reqLimit > 0 {
+			return reqLimit
+		}
+		return fallback
+	}
+	if reqLimit > 0 && reqLimit < max {
+		return reqLimit
 	}
 	return max
 }

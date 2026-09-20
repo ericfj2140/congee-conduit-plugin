@@ -12,7 +12,7 @@ import (
 )
 
 func searchSQL(ctx context.Context, s *sqlStore, q Query) ([]string, error) {
-	limit := clampLimit(q.Limit, 500)
+	limit := clampLimit(q.Limit, 0)
 	capN := q.SearchCandidateCap
 	if capN <= 0 {
 		capN = 2000

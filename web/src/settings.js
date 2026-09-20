@@ -13,8 +13,8 @@ export function defaultSettings() {
 		vector_enabled: true,
 		active_filter: true,
 		rank_all_product_reqs: false,
-		inject_product_kinds_on_search: true,
-		max_results: 50,
+		inject_product_kinds_on_search: false,
+		max_results: 0,
 		geo_min_prefix_len: 2,
 		search_candidate_cap: 2000
 	};
@@ -29,7 +29,8 @@ export function mergeSettings(raw) {
 		product_kinds: Array.isArray(raw.product_kinds) ? raw.product_kinds : base.product_kinds,
 		stall_kinds: Array.isArray(raw.stall_kinds) ? raw.stall_kinds : base.stall_kinds,
 		draft_kinds: Array.isArray(raw.draft_kinds) ? raw.draft_kinds : base.draft_kinds,
-		deletion_kinds: Array.isArray(raw.deletion_kinds) ? raw.deletion_kinds : base.deletion_kinds
+		deletion_kinds: Array.isArray(raw.deletion_kinds) ? raw.deletion_kinds : base.deletion_kinds,
+		inject_product_kinds_on_search: false
 	};
 }
 

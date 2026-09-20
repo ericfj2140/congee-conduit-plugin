@@ -48,6 +48,30 @@ func TestDecideRankAll(t *testing.T) {
 	}
 }
 
+func TestDecideEmptySearchPassthrough(t *testing.T) {
+	st := defaultSettings()
+	d := decide(sdk.Req{Filters: []sdk.Filter{{Search: "bike"}}}, st, true)
+	if d.kind != decPassthrough {
+		t.Fatalf("%v", d.kind)
+	}
+}
+
+func TestMergeLimitUnlimitedHonorsREQ(t *testing.T) {
+	n := 3
+	got := mergeLimit(sdk.Filter{Limit: &n}, 0)
+	if got != 3 {
+		t.Fatalf("%d", got)
+	}
+	got = mergeLimit(sdk.Filter{}, 0)
+	if got != 500 {
+		t.Fatalf("%d", got)
+	}
+	got = mergeLimit(sdk.Filter{Limit: &n}, 50)
+	if got != 3 {
+		t.Fatalf("%d", got)
+	}
+}
+
 func TestDecideKind1Passthrough(t *testing.T) {
 	st := defaultSettings()
 	d := decide(sdk.Req{Filters: []sdk.Filter{{Kinds: []int{1}, Search: "hi"}}}, st, true)

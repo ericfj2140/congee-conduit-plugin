@@ -42,10 +42,10 @@ func defaultSettings() Settings {
 		GeoEnabled:                 true,
 		VectorEnabled:              true,
 		ActiveFilter:               true,
-		MaxResults:                 50,
+		MaxResults:                 0,
 		GeoMinPrefixLen:            2,
 		SearchCandidateCap:         2000,
-		InjectProductKindsOnSearch: true,
+		InjectProductKindsOnSearch: false,
 	}
 }
 
@@ -64,8 +64,8 @@ func parseSettings(raw json.RawMessage) (Settings, error) {
 	if s.IndexBackend != "turso" && s.IndexBackend != "postgres" {
 		return s, fmt.Errorf("settings: index_backend must be turso or postgres")
 	}
-	if s.MaxResults <= 0 {
-		s.MaxResults = 50
+	if s.MaxResults < 0 {
+		s.MaxResults = 0
 	}
 	if s.GeoMinPrefixLen <= 0 {
 		s.GeoMinPrefixLen = 2
@@ -85,6 +85,7 @@ func parseSettings(raw json.RawMessage) (Settings, error) {
 	if len(s.DeletionKinds) == 0 {
 		s.DeletionKinds = listing.DefaultDeletionKinds()
 	}
+	s.InjectProductKindsOnSearch = false
 	return s, nil
 }
 
