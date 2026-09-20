@@ -2,11 +2,19 @@
 # Print version=X.Y.Z, bump=major|minor|patch|none, skip=true|false for GITHUB_OUTPUT.
 set -euo pipefail
 
+override="${BUMP_OVERRIDE:-}"
 last="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 if [[ -z "$last" ]]; then
+	# First release: ship plugin.json's 0.1.0 as-is (do not invent 0.2.0).
 	echo "version=0.1.0"
 	echo "bump=none"
 	echo "skip=false"
+	exit 0
+fi
+if [[ "$override" == "none" ]]; then
+	echo "version=${last#v}"
+	echo "bump=none"
+	echo "skip=true"
 	exit 0
 fi
 
@@ -21,7 +29,9 @@ fi
 subjects="$(git log --format=%s "$range")"
 bodies="$(git log --format=%B "$range")"
 bump=patch
-if echo "$bodies" | grep -q 'BREAKING CHANGE:' || echo "$subjects" | grep -qE '^[a-z]+(\([^)]+\))?!:'; then
+if [[ "$override" == "major" || "$override" == "minor" || "$override" == "patch" ]]; then
+	bump="$override"
+elif echo "$bodies" | grep -q 'BREAKING CHANGE:' || echo "$subjects" | grep -qE '^[a-z]+(\([^)]+\))?!:'; then
 	bump=major
 elif echo "$subjects" | grep -qE '^feat(\(|:|!)'; then
 	bump=minor
