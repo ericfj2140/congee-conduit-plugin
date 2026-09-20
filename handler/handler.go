@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -186,6 +187,12 @@ func (h *Handler) AdminAction(ctx context.Context, name string, payload json.Raw
 			return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
 		}
 		return json.Marshal(map[string]any{"ok": true})
+	case "list_listings":
+		return h.listListings(ctx, payload)
+	case "list_embeddings":
+		return h.listEmbeddings(ctx, payload)
+	case "get_event":
+		return h.getEvent(ctx, payload)
 	default:
 		_ = payload
 		return json.Marshal(map[string]any{"ok": false, "error": "unknown action"})
@@ -275,6 +282,83 @@ func (h *Handler) openStore(ctx context.Context, st Settings, password string, e
 	}
 	path := filepath.Join(h.dataDir, "conduit-index.db")
 	return index.OpenTurso(ctx, path, e)
+}
+
+type listPayload struct {
+	Limit  int    `json:"limit"`
+	Offset int    `json:"offset"`
+	Status string `json:"status"`
+}
+
+func (h *Handler) listListings(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	h.mu.RLock()
+	store := h.store
+	h.mu.RUnlock()
+	if store == nil {
+		return json.Marshal(map[string]any{"ok": false, "error": "store not open"})
+	}
+	var p listPayload
+	_ = json.Unmarshal(payload, &p)
+	page, err := store.ListListings(ctx, index.ListQuery{Limit: p.Limit, Offset: p.Offset, Status: p.Status})
+	if err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
+	}
+	return json.Marshal(map[string]any{"ok": true, "items": page.Items, "total": page.Total})
+}
+
+func (h *Handler) listEmbeddings(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	h.mu.RLock()
+	store := h.store
+	h.mu.RUnlock()
+	if store == nil {
+		return json.Marshal(map[string]any{"ok": false, "error": "store not open"})
+	}
+	var p listPayload
+	_ = json.Unmarshal(payload, &p)
+	page, err := store.ListEmbeddings(ctx, index.ListQuery{Limit: p.Limit, Offset: p.Offset})
+	if err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
+	}
+	return json.Marshal(map[string]any{"ok": true, "items": page.Items, "total": page.Total})
+}
+
+func (h *Handler) getEvent(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	var p struct {
+		ID    string `json:"id"`
+		Coord string `json:"coord"`
+	}
+	_ = json.Unmarshal(payload, &p)
+	id := strings.ToLower(strings.TrimSpace(p.ID))
+	if id == "" && strings.TrimSpace(p.Coord) != "" {
+		h.mu.RLock()
+		store := h.store
+		h.mu.RUnlock()
+		if store != nil {
+			if l, ok, err := store.Get(ctx, p.Coord); err == nil && ok {
+				id = strings.ToLower(strings.TrimSpace(l.EventID))
+			}
+		}
+	}
+	if id == "" {
+		return json.Marshal(map[string]any{
+			"ok": false, "missing": true,
+			"error": "This index row has no event id. The listing may have been removed from the index.",
+		})
+	}
+	if len(id) != 64 {
+		return json.Marshal(map[string]any{"ok": false, "error": "invalid event id"})
+	}
+	if h.host == nil {
+		return json.Marshal(map[string]any{"ok": false, "error": "host unavailable"})
+	}
+	evs, err := h.host.GetEventsByIDs(ctx, []string{id})
+	if err != nil {
+		return json.Marshal(map[string]any{"ok": false, "error": err.Error()})
+	}
+	if len(evs) == 0 {
+		return json.Marshal(map[string]any{"ok": false, "missing": true, "id": id, "error": "not in relay event store"})
+	}
+	return json.Marshal(map[string]any{"ok": true, "event": evs[0]})
 }
 
 func (h *Handler) log(ctx context.Context, level, msg string, fields map[string]string) {

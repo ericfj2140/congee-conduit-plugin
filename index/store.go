@@ -34,12 +34,62 @@ type Stats struct {
 	Backend           string `json:"backend"`
 }
 
+// ListQuery pages through stored listings or embeddings.
+type ListQuery struct {
+	Limit  int
+	Offset int
+	Status string
+}
+
+// ListingListItem is a listing row for the admin UI.
+type ListingListItem struct {
+	Coord          string `json:"coord"`
+	EventID        string `json:"event_id"`
+	Kind           int    `json:"kind"`
+	PubKey         string `json:"pubkey"`
+	DTag           string `json:"d_tag"`
+	StallID        string `json:"stall_id"`
+	Status         string `json:"status"`
+	InactiveReason string `json:"inactive_reason,omitempty"`
+	Title          string `json:"title"`
+	CreatedAt      int64  `json:"created_at"`
+	Geohash        string `json:"geohash,omitempty"`
+	HasEmbedding   bool   `json:"has_embedding"`
+}
+
+// EmbeddingListItem is an embedding row for the admin UI.
+type EmbeddingListItem struct {
+	Coord   string `json:"coord"`
+	EventID string `json:"event_id"`
+	Model   string `json:"model"`
+	Dim     int    `json:"dim"`
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Kind    int    `json:"kind"`
+	DTag    string `json:"d_tag"`
+	PubKey  string `json:"pubkey"`
+}
+
+// ListingPage is a paged listing list.
+type ListingPage struct {
+	Items []ListingListItem `json:"items"`
+	Total int64             `json:"total"`
+}
+
+// EmbeddingPage is a paged embedding list.
+type EmbeddingPage struct {
+	Items []EmbeddingListItem `json:"items"`
+	Total int64               `json:"total"`
+}
+
 // Store is the only persistence API.
 type Store interface {
 	Upsert(ctx context.Context, l listing.Listing) error
 	MarkInactive(ctx context.Context, pubkey string, eventIDs, coords []string) error
 	Get(ctx context.Context, coord string) (listing.Listing, bool, error)
 	Search(ctx context.Context, q Query) ([]string, error)
+	ListListings(ctx context.Context, q ListQuery) (ListingPage, error)
+	ListEmbeddings(ctx context.Context, q ListQuery) (EmbeddingPage, error)
 	Meta(ctx context.Context, key string) (string, error)
 	SetMeta(ctx context.Context, key, value string) error
 	Stats(ctx context.Context) (Stats, error)

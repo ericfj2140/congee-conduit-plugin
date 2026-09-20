@@ -85,6 +85,21 @@ func TestTursoSearchRankAndInactive(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = geo
+
+	page, err := st.ListListings(ctx, ListQuery{Limit: 10, Offset: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 2 || len(page.Items) != 2 {
+		t.Fatalf("listings %+v", page)
+	}
+	emb, err := st.ListEmbeddings(ctx, ListQuery{Limit: 10, Offset: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emb.Total < 1 {
+		t.Fatalf("embeddings %+v", emb)
+	}
 }
 
 func TestTursoSearchGeoProximity(t *testing.T) {
