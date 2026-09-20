@@ -36,14 +36,18 @@ func TestEnsureAssetsDownloads(t *testing.T) {
 	ort := buf.Bytes()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/model.onnx", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(model) })
+	mux.HandleFunc("/tokenizer.json", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"model":{"vocab":{"[CLS]":1}}}`))
+	})
 	mux.HandleFunc("/ort.tgz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(ort) })
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	dir := t.TempDir()
 	st, err := EnsureAssets(context.Background(), AssetOpts{
-		DataDir:    dir,
-		ModelURL:   srv.URL + "/model.onnx",
-		RuntimeURL: srv.URL + "/ort.tgz",
+		DataDir:      dir,
+		ModelURL:     srv.URL + "/model.onnx",
+		TokenizerURL: srv.URL + "/tokenizer.json",
+		RuntimeURL:   srv.URL + "/ort.tgz",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +58,15 @@ func TestEnsureAssetsDownloads(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(dir, "models", "minilm.onnx"))
 	if err != nil || string(got) != "fake-onnx" {
 		t.Fatalf("model %q %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "models", "tokenizer.json")); err != nil {
+		t.Fatal("tokenizer missing")
+	}
+	if err := RemoveDownloadedAssets(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "models")); !os.IsNotExist(err) {
+		t.Fatal("models should be gone after uninstall cleanup")
 	}
 }
 

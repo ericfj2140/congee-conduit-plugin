@@ -14,6 +14,11 @@ import (
 	sdk "github.com/michmich112/congee/sdk/plugin"
 )
 
+// Version is the plugin release, injected at link time:
+//
+//	go build -ldflags "-X github.com/michmich112/conduit-plugin/handler.Version=0.1.0"
+var Version = "0.1.0-dev"
+
 // Handler implements sdk.Handler for Conduit.
 type Handler struct {
 	dataDir  string
@@ -54,11 +59,11 @@ func (h *Handler) Handshake(ctx context.Context, settings json.RawMessage) (*sdk
 	h.startBackfill(context.WithoutCancel(ctx))
 	h.mu.RLock()
 	st := h.settings
-	h.mu.RUnlock()
+	defer h.mu.RUnlock()
 	return &sdk.HandshakeResult{
 		PluginID:            "conduit",
 		Name:                "Conduit",
-		Version:             "0.1.0",
+		Version:             Version,
 		Capabilities:        []string{sdk.CapIntercept, sdk.CapEventsRead, sdk.CapIndexOwn, sdk.CapAdminUI},
 		Subscriptions:       subscriptionsFor(st),
 		InterceptDeadlineMs: 200,
@@ -526,6 +531,11 @@ func RunLifecycleHook(ctx context.Context, dataDir, settingsJSON string) error {
 		RuntimeURL: st.EmbedRuntimeURL,
 	})
 	return err
+}
+
+// RunUninstallHook is --hook=uninstall: delete downloaded MiniLM / ORT blobs only.
+func RunUninstallHook(dataDir string) error {
+	return embed.RemoveDownloadedAssets(dataDir)
 }
 
 func (h *Handler) log(ctx context.Context, level, msg string, fields map[string]string) {

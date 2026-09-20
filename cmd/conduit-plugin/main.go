@@ -19,12 +19,22 @@ func main() {
 		dataDir = "."
 	}
 	for _, a := range os.Args[1:] {
-		if a == "--hook=install" || a == "--hook=launch" || strings.HasPrefix(a, "--hook=") {
+		switch {
+		case a == "--hook=uninstall":
+			if err := handler.RunUninstallHook(dataDir); err != nil {
+				fmt.Fprintf(os.Stderr, "uninstall: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		case a == "--hook=install" || a == "--hook=launch":
 			if err := handler.RunLifecycleHook(context.Background(), dataDir, os.Getenv(sdk.EnvPluginSettings)); err != nil {
 				fmt.Fprintf(os.Stderr, "asset setup: %v\n", err)
 				os.Exit(1)
 			}
 			os.Exit(0)
+		case strings.HasPrefix(a, "--hook="):
+			fmt.Fprintf(os.Stderr, "unknown hook %s\n", a)
+			os.Exit(1)
 		}
 	}
 	embed.PrepareRuntimeLibrary(dataDir)

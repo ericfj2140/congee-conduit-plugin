@@ -8,6 +8,7 @@ import (
 )
 
 const packagedModelName = "minilm.onnx"
+const packagedTokenizerName = "tokenizer.json"
 
 func runtimeLibNames() []string {
 	switch runtime.GOOS {
@@ -69,6 +70,12 @@ func DefaultModelPath(dataDir string) string {
 		return filepath.Join(dataDir, "models", packagedModelName)
 	}
 	return filepath.Join("models", packagedModelName)
+}
+
+// DefaultTokenizerPath is tokenizer.json beside the MiniLM weights.
+func DefaultTokenizerPath(dataDir string) string {
+	model := DefaultModelPath(dataDir)
+	return filepath.Join(filepath.Dir(model), packagedTokenizerName)
 }
 
 // DefaultRuntimeLibPath is the packaged onnxruntime shared library, if present.

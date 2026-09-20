@@ -17,28 +17,33 @@ import (
 )
 
 const (
-	DefaultModelURL = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"
-	defaultORTVer   = "1.19.2"
+	DefaultModelURL     = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"
+	DefaultTokenizerURL = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
+	defaultORTVer       = "1.19.2"
 )
 
-// AssetOpts locates MiniLM ONNX and the onnxruntime shared library.
+// AssetOpts locates MiniLM ONNX, tokenizer.json, and the onnxruntime shared library.
 type AssetOpts struct {
-	DataDir    string
-	ModelURL   string
-	RuntimeURL string
-	Force      bool
+	DataDir      string
+	ModelURL     string
+	TokenizerURL string
+	RuntimeURL   string
+	Force        bool
 }
 
 // AssetStatus is written to data/assets-status.json and returned to the UI.
 type AssetStatus struct {
-	ModelOK     bool   `json:"model_ok"`
-	RuntimeOK   bool   `json:"runtime_ok"`
-	ModelPath   string `json:"model_path,omitempty"`
-	RuntimePath string `json:"runtime_path,omitempty"`
-	ModelURL    string `json:"model_url,omitempty"`
-	RuntimeURL  string `json:"runtime_url,omitempty"`
-	Error       string `json:"error,omitempty"`
-	Skipped     bool   `json:"skipped,omitempty"`
+	ModelOK       bool   `json:"model_ok"`
+	TokenizerOK   bool   `json:"tokenizer_ok"`
+	RuntimeOK     bool   `json:"runtime_ok"`
+	ModelPath     string `json:"model_path,omitempty"`
+	TokenizerPath string `json:"tokenizer_path,omitempty"`
+	RuntimePath   string `json:"runtime_path,omitempty"`
+	ModelURL      string `json:"model_url,omitempty"`
+	TokenizerURL  string `json:"tokenizer_url,omitempty"`
+	RuntimeURL    string `json:"runtime_url,omitempty"`
+	Error         string `json:"error,omitempty"`
+	Skipped       bool   `json:"skipped,omitempty"`
 }
 
 var assetMu sync.Mutex
@@ -89,16 +94,20 @@ func ortArchiveParts() (osName, arch string) {
 	return osName, arch
 }
 
-func resolveAssetURLs(o AssetOpts) (modelURL, runtimeURL string) {
+func resolveAssetURLs(o AssetOpts) (modelURL, tokenizerURL, runtimeURL string) {
 	modelURL = strings.TrimSpace(o.ModelURL)
 	if modelURL == "" {
 		modelURL = DefaultModelURL
+	}
+	tokenizerURL = strings.TrimSpace(o.TokenizerURL)
+	if tokenizerURL == "" {
+		tokenizerURL = DefaultTokenizerURL
 	}
 	runtimeURL = strings.TrimSpace(o.RuntimeURL)
 	if runtimeURL == "" {
 		runtimeURL = DefaultRuntimeURL()
 	}
-	return modelURL, runtimeURL
+	return modelURL, tokenizerURL, runtimeURL
 }
 
 func assetsMetaPath(dataDir string) string {
@@ -134,6 +143,11 @@ func InspectAssets(dataDir string) AssetStatus {
 		s.ModelOK = true
 		s.ModelPath = model
 	}
+	tok := DefaultTokenizerPath(dataDir)
+	if st, err := os.Stat(tok); err == nil && !st.IsDir() {
+		s.TokenizerOK = true
+		s.TokenizerPath = tok
+	}
 	if lib, err := findRuntimeLib(dataDir); err == nil {
 		s.RuntimeOK = true
 		s.RuntimePath = lib
@@ -141,7 +155,21 @@ func InspectAssets(dataDir string) AssetStatus {
 	return s
 }
 
-// EnsureAssets downloads MiniLM ONNX and onnxruntime into the plugin data dir.
+// RemoveDownloadedAssets deletes MiniLM, tokenizer, onnxruntime, and temp files under data/.
+// It does not remove the Turso index or secrets.json.
+func RemoveDownloadedAssets(dataDir string) error {
+	if dataDir == "" {
+		return fmt.Errorf("assets: empty data dir")
+	}
+	assetMu.Lock()
+	defer assetMu.Unlock()
+	for _, rel := range []string{"models", "lib", "tmp", "assets-status.json"} {
+		_ = os.RemoveAll(filepath.Join(dataDir, rel))
+	}
+	return nil
+}
+
+// EnsureAssets downloads MiniLM ONNX, tokenizer.json, and onnxruntime into the plugin data dir.
 // It never panics; failures are returned and stored on AssetStatus.Error.
 func EnsureAssets(ctx context.Context, o AssetOpts) (st AssetStatus, err error) {
 	defer func() {
@@ -156,14 +184,16 @@ func EnsureAssets(ctx context.Context, o AssetOpts) (st AssetStatus, err error) 
 	assetMu.Lock()
 	defer assetMu.Unlock()
 
-	modelURL, runtimeURL := resolveAssetURLs(o)
+	modelURL, tokenizerURL, runtimeURL := resolveAssetURLs(o)
 	st.ModelURL = modelURL
+	st.TokenizerURL = tokenizerURL
 	st.RuntimeURL = runtimeURL
 
 	if skipAssetDownload() {
 		st = InspectAssets(o.DataDir)
 		st.Skipped = true
 		st.ModelURL = modelURL
+		st.TokenizerURL = tokenizerURL
 		st.RuntimeURL = runtimeURL
 		return st, nil
 	}
@@ -181,11 +211,31 @@ func EnsureAssets(ctx context.Context, o AssetOpts) (st AssetStatus, err error) 
 			cur := InspectAssets(o.DataDir)
 			st.RuntimeOK = cur.RuntimeOK
 			st.RuntimePath = cur.RuntimePath
+			st.TokenizerOK = cur.TokenizerOK
 			return st, err
 		}
 	}
 	st.ModelOK = true
 	st.ModelPath = modelPath
+
+	tokPath := filepath.Join(o.DataDir, "models", packagedTokenizerName)
+	needTok := o.Force || prev.TokenizerURL != tokenizerURL
+	if _, err := os.Stat(tokPath); err != nil {
+		needTok = true
+	}
+	if needTok && tokenizerURL != "" {
+		if err := downloadFile(ctx, tokenizerURL, tokPath); err != nil {
+			st.Error = err.Error()
+			cur := InspectAssets(o.DataDir)
+			st.RuntimeOK = cur.RuntimeOK
+			st.TokenizerOK = cur.TokenizerOK
+			return st, err
+		}
+	}
+	if _, err := os.Stat(tokPath); err == nil {
+		st.TokenizerOK = true
+		st.TokenizerPath = tokPath
+	}
 
 	libDir := filepath.Join(o.DataDir, "lib", runtime.GOOS+"_"+runtime.GOARCH)
 	needRT := o.Force || prev.RuntimeURL != runtimeURL
@@ -193,7 +243,7 @@ func EnsureAssets(ctx context.Context, o AssetOpts) (st AssetStatus, err error) 
 		needRT = true
 	}
 	if needRT && runtimeURL != "" {
-		if err := downloadRuntime(ctx, runtimeURL, libDir); err != nil {
+		if err := downloadRuntime(ctx, o.DataDir, runtimeURL, libDir); err != nil {
 			st.Error = err.Error()
 			cur := InspectAssets(o.DataDir)
 			st.RuntimeOK = cur.RuntimeOK
@@ -250,9 +300,10 @@ func downloadFile(ctx context.Context, url, dest string) error {
 	return nil
 }
 
-func downloadRuntime(ctx context.Context, url, libDir string) error {
-	tmp, err := os.MkdirTemp("", "conduit-ort-*")
-	if err != nil {
+func downloadRuntime(ctx context.Context, dataDir, url, libDir string) error {
+	tmp := filepath.Join(dataDir, "tmp", "ort-extract")
+	_ = os.RemoveAll(tmp)
+	if err := os.MkdirAll(tmp, 0o700); err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)

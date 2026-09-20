@@ -2,6 +2,7 @@ package embed
 
 import (
 	"context"
+	"fmt"
 	"math"
 )
 
@@ -57,4 +58,12 @@ func Cosine(a, b []float32) float32 {
 		sum += a[i] * b[i]
 	}
 	return sum
+}
+
+// Warm embeds a dummy string so a remote or ONNX backend fails fast at apply.
+func Warm(ctx context.Context, e Embedder) error {
+	if e == nil {
+		return fmt.Errorf("nil embedder")
+	}
+	return Probe(ctx, e)
 }

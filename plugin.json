@@ -11,6 +11,7 @@
   },
   "hooks": {
     "install": ["--hook=install"],
-    "launch": ["--hook=launch"]
+    "launch": ["--hook=launch"],
+    "uninstall": ["--hook=uninstall"]
   }
 }
