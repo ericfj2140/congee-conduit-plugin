@@ -1,5 +1,7 @@
 <script>
-	let { values = $bindable([]), label, description = '' } = $props();
+	import Tooltip from './Tooltip.svelte';
+
+	let { values = $bindable([]), label, description = '', tip = '' } = $props();
 
 	let draft = $state('');
 
@@ -37,7 +39,12 @@
 
 <div class="space-y-2">
 	<div>
-		<div class="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</div>
+		<div class="flex items-center gap-1.5">
+			<div class="text-sm font-medium text-neutral-900 dark:text-neutral-100">{label}</div>
+			{#if tip}
+				<Tooltip {tip} label="About {label}" />
+			{/if}
+		</div>
 		{#if description}
 			<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{description}</p>
 		{/if}

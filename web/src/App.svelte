@@ -4,6 +4,8 @@
 	import { cloneSettings, mergeSettings, settingsEqual } from './settings.js';
 	import Indexes from './pages/Indexes.svelte';
 	import Kinds from './pages/Kinds.svelte';
+	import Listings from './pages/Listings.svelte';
+	import Embeddings from './pages/Embeddings.svelte';
 	import Overview from './pages/Overview.svelte';
 	import Search from './pages/Search.svelte';
 	import Storage from './pages/Storage.svelte';
@@ -21,7 +23,9 @@
 		'/storage': 'storage',
 		'/indexes': 'indexes',
 		'/search': 'search',
-		'/kinds': 'kinds'
+		'/kinds': 'kinds',
+		'/listings': 'listings',
+		'/embeddings': 'embeddings'
 	};
 
 	function routeFromHash(h) {
@@ -157,9 +161,9 @@
 
 <svelte:window onhashchange={onHashChange} onmessage={onHostMessage} />
 
-<div class="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+<div class="flex min-h-screen flex-col bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
 	<header class="border-b border-neutral-200 bg-white/90 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/90">
-		<div class="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
+		<div class="flex w-full flex-col gap-3 px-6 py-4">
 			<div>
 				<h1 class="text-xl font-semibold tracking-tight">Conduit</h1>
 				<p class="text-sm text-neutral-500 dark:text-neutral-400">Marketplace index</p>
@@ -183,7 +187,7 @@
 		</div>
 	</header>
 
-	<main class="mx-auto max-w-3xl space-y-4 px-4 py-6 {dirty ? 'pb-28' : 'pb-10'}">
+	<main class="w-full flex-1 space-y-4 px-6 py-6 {dirty ? 'pb-28' : 'pb-10'}">
 		{#if ready === false}
 			<div
 				class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
@@ -220,14 +224,18 @@
 			<Search {settings} />
 		{:else if route === 'kinds'}
 			<Kinds {settings} {resetKey} />
+		{:else if route === 'listings'}
+			<Listings />
+		{:else if route === 'embeddings'}
+			<Embeddings />
 		{/if}
 	</main>
 
 	{#if dirty}
 		<div
-			class="fixed inset-x-0 bottom-0 border-t border-neutral-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/95"
+			class="fixed inset-x-0 bottom-0 border-t border-neutral-200 bg-white/95 px-6 py-3 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/95"
 		>
-			<div class="mx-auto flex max-w-3xl items-center justify-between gap-3">
+			<div class="flex w-full items-center justify-between gap-3">
 				<p class="text-sm text-neutral-600 dark:text-neutral-300">Unsaved settings</p>
 				<div class="flex gap-2">
 					<button
