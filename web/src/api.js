@@ -1,20 +1,11 @@
 let requestSeq = 0;
 
+/** Correlation ids for postMessage. Never use crypto.randomUUID — opaque-origin
+ * iframes (sandbox without allow-same-origin) often report it as a function and
+ * still throw "crypto.randomUUID is not a function" when it is called. */
 export function newRequestId() {
 	requestSeq += 1;
-	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-		return `${requestSeq}-${crypto.randomUUID()}`;
-	}
-	const bytes = new Uint8Array(16);
-	if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-		crypto.getRandomValues(bytes);
-	} else {
-		for (let i = 0; i < bytes.length; i++) {
-			bytes[i] = Math.floor(Math.random() * 256);
-		}
-	}
-	const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-	return `${requestSeq}-${hex}`;
+	return `${requestSeq}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export function pluginApi(method, path, body) {

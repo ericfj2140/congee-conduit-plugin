@@ -1,4 +1,6 @@
 web/node_modules/
+web/test-results/
+web/playwright-report/
 bin/
 *.db
 *.db-wal

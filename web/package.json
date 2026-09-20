@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/api.test.js",
+    "test:sandbox": "playwright test"
   },
   "dependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
@@ -14,5 +16,8 @@
     "svelte": "^5.39.5",
     "tailwindcss": "^4.1.13",
     "vite": "^6.3.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
   }
 }
