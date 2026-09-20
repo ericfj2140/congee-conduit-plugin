@@ -4,7 +4,7 @@
 	import Tooltip from '../lib/Tooltip.svelte';
 	import { defaultKindTip, kindsForRole } from '../lib/eventView.js';
 
-	let { settings, resetKey = 0 } = $props();
+	let { settings = $bindable(), resetKey = 0 } = $props();
 
 	const productTip = defaultKindTip(
 		'product',

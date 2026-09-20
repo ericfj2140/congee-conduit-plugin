@@ -12,6 +12,10 @@ for (const name of readdirSync(uiAssets)) {
 		console.error(`${name} still contains randomUUID; opaque-origin iframes throw when it is called`);
 		failed = true;
 	}
+	if (src.includes('${goos') || src.includes('${goarch')) {
+		console.error(`${name} interpolates undeclared goos/goarch; Indexes tab will crash on open`);
+		failed = true;
+	}
 }
 if (failed) process.exit(1);
 console.log('ok: built plugin UI does not reference randomUUID');

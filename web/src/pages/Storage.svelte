@@ -2,7 +2,7 @@
 	import InfoLabel from '../lib/InfoLabel.svelte';
 	import Tooltip from '../lib/Tooltip.svelte';
 
-	let { settings, relayType = '', testResult = '', testBusy = false, ontest } = $props();
+	let { settings = $bindable(), relayType = '', testResult = '', testBusy = false, ontest } = $props();
 
 	let mode = $derived(settings.postgres_url ? 'url' : 'auto');
 	let splitBrain = $derived(relayType === 'postgres' && settings.index_backend === 'turso');

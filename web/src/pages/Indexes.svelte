@@ -4,7 +4,7 @@
 	import Tooltip from '../lib/Tooltip.svelte';
 
 	let {
-		settings,
+		settings = $bindable(),
 		embedder = {},
 		assets = {},
 		testResult = '',
@@ -149,7 +149,7 @@
 					<input
 						class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:ring-2 focus:ring-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
 						bind:value={settings.embed_runtime_url}
-						placeholder="default onnxruntime {goos}_{goarch} tarball"
+						placeholder={'default onnxruntime {goos}_{goarch} tarball'}
 						autocomplete="off"
 					/>
 				</label>
@@ -169,6 +169,9 @@
 					{/if}
 					{#if assets?.error}
 						<span class="text-sm text-amber-800 dark:text-amber-200">{assets.error}</span>
+					{/if}
+					{#if testResult}
+						<span class="text-sm text-neutral-600 dark:text-neutral-300">{testResult}</span>
 					{/if}
 				</div>
 			</div>

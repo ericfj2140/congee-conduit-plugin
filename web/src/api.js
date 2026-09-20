@@ -49,3 +49,9 @@ export function onHostMessage(ev) {
 	if (!d || d.type !== 'congee:theme') return;
 	if (d.theme === 'dark' || d.theme === 'light') applyTheme(d.theme);
 }
+
+export const GOTO_EVENT = 'conduit-goto';
+
+export function goto(href) {
+	window.dispatchEvent(new CustomEvent(GOTO_EVENT, { detail: href }));
+}

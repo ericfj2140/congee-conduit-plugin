@@ -21,5 +21,50 @@
 			src="/ui/"
 			sandbox="allow-scripts allow-forms"
 		></iframe>
+		<script>
+			window.apiCalls = [];
+			let generation = 1;
+			let backfill = 'complete';
+			window.addEventListener('message', (ev) => {
+				const d = ev.data;
+				if (!d || d.type !== 'congee:plugin-api' || !ev.source) return;
+				window.apiCalls.push({ method: d.method, path: d.path });
+				let json = { ok: true };
+				if (typeof d.path === 'string' && d.path.endsWith('/settings') && d.method === 'GET') {
+					json = {
+						settings: {
+							geo_enabled: true,
+							vector_enabled: true,
+							active_filter: true,
+							embed_dim: 384,
+							embed_provider: 'on_device'
+						}
+					};
+				} else if (typeof d.path === 'string' && d.path.endsWith('/status')) {
+					json = {
+						ready: true,
+						relay_database_type: 'turso',
+						status: {
+							backend: 'turso',
+							active: 2,
+							inactive: 0,
+							embeddings: 2,
+							backfill,
+							backfill_generation: generation,
+							backfill_scanned: 10,
+							backfill_indexed: 2
+						}
+					};
+				} else if (typeof d.path === 'string' && d.path.includes('/actions/rebuild')) {
+					generation += 1;
+					backfill = 'complete';
+					json = { ok: true, generation };
+				}
+				ev.source.postMessage(
+					{ type: 'congee:plugin-api-result', id: d.id, status: 200, json },
+					'*'
+				);
+			});
+		</script>
 	</body>
 </html>

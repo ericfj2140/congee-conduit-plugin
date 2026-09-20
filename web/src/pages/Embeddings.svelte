@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { PATHS, pluginApi } from '../api.js';
+	import { PATHS, goto, pluginApi } from '../api.js';
 	import EventModal from '../lib/EventModal.svelte';
 	import InfoLabel from '../lib/InfoLabel.svelte';
 	import Tooltip from '../lib/Tooltip.svelte';
@@ -62,7 +62,7 @@
 <section class="space-y-6">
 	<div>
 		<p class="text-sm text-neutral-500 dark:text-neutral-400">
-			<a class="underline-offset-2 hover:underline" href="#/">Overview</a>
+			<button class="underline-offset-2 hover:underline" type="button" onclick={() => goto('#/')}>Overview</button>
 			<span class="px-1">/</span>
 			Embeddings
 		</p>

@@ -1,14 +1,21 @@
 <script>
 	import Tooltip from '../lib/Tooltip.svelte';
+	import { goto } from '../api.js';
 
 	let { status = {}, ready = false, busy = false, hint = '', onrebuild } = $props();
+
+	let pendingRebuild = $state(false);
 
 	function n(v) {
 		return typeof v === 'number' ? v : 0;
 	}
 
+	function requestRebuild() {
+		pendingRebuild = true;
+	}
+
 	async function confirmRebuild() {
-		if (!confirm('Rebuild the Conduit index from stored relay events?')) return;
+		pendingRebuild = false;
 		await onrebuild();
 	}
 </script>
@@ -40,9 +47,10 @@
 				{status.backend || '—'}
 			</div>
 		</div>
-		<a
-			href="#/listings"
-			class="rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-500"
+		<button
+			class="rounded-lg border border-neutral-200 bg-white p-4 text-left transition-colors hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-500"
+			type="button"
+			onclick={() => goto('#/listings')}
 		>
 			<div class="flex items-center gap-1.5 text-xs tracking-wide text-neutral-500 uppercase dark:text-neutral-400">
 				Listings
@@ -55,10 +63,11 @@
 				{n(status.active)} active · {n(status.inactive)} inactive
 			</div>
 			<div class="mt-2 text-xs text-neutral-500 dark:text-neutral-400">View indexed listings</div>
-		</a>
-		<a
-			href="#/embeddings"
-			class="rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-500"
+		</button>
+		<button
+			class="rounded-lg border border-neutral-200 bg-white p-4 text-left transition-colors hover:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-500"
+			type="button"
+			onclick={() => goto('#/embeddings')}
 		>
 			<div class="flex items-center gap-1.5 text-xs tracking-wide text-neutral-500 uppercase dark:text-neutral-400">
 				Embeddings
@@ -71,7 +80,7 @@
 				{n(status.embeddings)}
 			</div>
 			<div class="mt-2 text-xs text-neutral-500 dark:text-neutral-400">View embedding rows</div>
-		</a>
+		</button>
 		<div class="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
 			<div class="flex items-center gap-1.5 text-xs tracking-wide text-neutral-500 uppercase dark:text-neutral-400">
 				Backfill
@@ -161,23 +170,45 @@
 					Re-scan relay events into the Conduit store. Ready is {ready ? 'true' : 'false'}.
 				</p>
 			</div>
-			<button
-				class="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-100 dark:text-neutral-900"
-				type="button"
-				disabled={busy}
-				aria-busy={busy}
-				onclick={() => void confirmRebuild()}
-			>
-				{#if busy}
+			{#if busy}
+				<button
+					class="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-100 dark:text-neutral-900"
+					type="button"
+					disabled
+					aria-busy="true"
+				>
 					<span
 						class="inline-block size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
 						aria-hidden="true"
 					></span>
 					Rebuilding…
-				{:else}
+				</button>
+			{:else if pendingRebuild}
+				<div class="flex shrink-0 gap-2">
+					<button
+						class="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+						type="button"
+						onclick={() => (pendingRebuild = false)}
+					>
+						Cancel
+					</button>
+					<button
+						class="rounded-lg border border-neutral-300 bg-neutral-900 px-3 py-2 text-sm font-medium text-white dark:border-neutral-700 dark:bg-neutral-100 dark:text-neutral-900"
+						type="button"
+						onclick={() => void confirmRebuild()}
+					>
+						Confirm rebuild
+					</button>
+				</div>
+			{:else}
+				<button
+					class="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-neutral-900 px-3 py-2 text-sm font-medium text-white dark:border-neutral-700 dark:bg-neutral-100 dark:text-neutral-900"
+					type="button"
+					onclick={requestRebuild}
+				>
 					Rebuild
-				{/if}
-			</button>
+				</button>
+			{/if}
 		</div>
 		{#if hint}
 			<p class="text-sm text-neutral-600 dark:text-neutral-300">{hint}</p>

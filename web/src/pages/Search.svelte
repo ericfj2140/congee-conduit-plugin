@@ -3,7 +3,7 @@
 	import Switch from '../lib/Switch.svelte';
 	import Tooltip from '../lib/Tooltip.svelte';
 
-	let { settings } = $props();
+	let { settings = $bindable() } = $props();
 	let showAdvanced = $state(false);
 </script>
 

@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { PATHS, onHostMessage, pluginApi } from './api.js';
+	import { GOTO_EVENT, PATHS, onHostMessage, pluginApi } from './api.js';
 	import { cloneSettings, mergeSettings, settingsEqual } from './settings.js';
 	import Indexes from './pages/Indexes.svelte';
 	import Kinds from './pages/Kinds.svelte';
@@ -34,7 +34,7 @@
 		return routes[path] || 'overview';
 	}
 
-	let hash = $state(typeof location !== 'undefined' ? location.hash : '#/');
+	let hash = $state(typeof location !== 'undefined' ? location.hash || '#/' : '#/');
 	let route = $derived(routeFromHash(hash));
 
 	let settings = $state(mergeSettings());
@@ -56,8 +56,12 @@
 	let embedTestBusy = $state(false);
 	let embedTestResult = $state('');
 
-	function onHashChange() {
-		hash = location.hash || '#/';
+	function go(href) {
+		hash = href.startsWith('#') ? href : `#/${href}`;
+	}
+
+	function onGotoEvent(e) {
+		if (e instanceof CustomEvent && typeof e.detail === 'string') go(e.detail);
 	}
 
 	function apiError(json, fallback) {
@@ -258,11 +262,13 @@
 	}
 
 	onMount(() => {
+		window.addEventListener(GOTO_EVENT, onGotoEvent);
 		void loadAll();
+		return () => window.removeEventListener(GOTO_EVENT, onGotoEvent);
 	});
 </script>
 
-<svelte:window onhashchange={onHashChange} onmessage={onHostMessage} />
+<svelte:window onmessage={onHostMessage} />
 
 <div class="flex min-h-screen flex-col bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
 	<header class="border-b border-neutral-200 bg-white/90 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/90">
@@ -273,8 +279,8 @@
 			</div>
 			<nav class="flex flex-wrap gap-1" aria-label="Sections">
 				{#each nav as item (item.id)}
-					<a
-						href={item.href}
+					<button
+						type="button"
 						aria-current={route === item.id ? 'page' : undefined}
 						class={[
 							'rounded-full px-3 py-1 text-sm',
@@ -282,15 +288,16 @@
 								? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
 								: 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900'
 						]}
+						onclick={() => go(item.href)}
 					>
 						{item.label}
-					</a>
+					</button>
 				{/each}
 			</nav>
 		</div>
 	</header>
 
-	<main class="w-full flex-1 space-y-4 px-6 py-6 {dirty ? 'pb-28' : 'pb-10'}">
+	<main class="w-full flex-1 space-y-4 px-6 py-6 {dirty ? 'pb-28' : 'pb-10'}" data-route={route}>
 		{#if ready === false}
 			<div
 				class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
@@ -344,10 +351,10 @@
 		{:else if route === 'overview'}
 			<Overview status={pluginStatus} {ready} busy={actionBusy} hint={rebuildHint} onrebuild={rebuild} />
 		{:else if route === 'storage'}
-			<Storage {settings} {relayType} {testResult} {testBusy} ontest={testStore} />
+			<Storage bind:settings {relayType} {testResult} {testBusy} ontest={testStore} />
 		{:else if route === 'indexes'}
 			<Indexes
-				{settings}
+				bind:settings
 				embedder={pluginStatus.embedder}
 				assets={pluginStatus.assets}
 				testResult={embedTestResult}
@@ -356,9 +363,9 @@
 				ondownload={ensureAssets}
 			/>
 		{:else if route === 'search'}
-			<Search {settings} />
+			<Search bind:settings />
 		{:else if route === 'kinds'}
-			<Kinds {settings} {resetKey} />
+			<Kinds bind:settings {resetKey} />
 		{:else if route === 'listings'}
 			<Listings />
 		{:else if route === 'embeddings'}
