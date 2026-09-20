@@ -39,10 +39,12 @@ jobs:
             goos: darwin
             goarch: arm64
           # go-libsql does not vendor lib/darwin_amd64; native Intel CGO cannot link.
-          - os: ubuntu-latest
+          # Linux must link against glibc older than Debian bookworm (2.36) so the
+          # plugin can run inside the Congee image. ubuntu-24.04 requires GLIBC_2.39.
+          - os: ubuntu-22.04
             goos: linux
             goarch: amd64
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-22.04-arm
             goos: linux
             goarch: arm64
     runs-on: ${{ matrix.os }}
