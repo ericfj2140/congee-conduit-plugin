@@ -35,10 +35,13 @@ type Handler struct {
 	lastErr         string
 	host            sdk.Host
 
-	interceptN   atomic.Int64
-	passthroughN atomic.Int64
-	respondN     atomic.Int64
-	reshapeN     atomic.Int64
+	backfillGen     atomic.Int64
+	backfillScanned atomic.Int64
+	backfillIndexed atomic.Int64
+	interceptN      atomic.Int64
+	passthroughN    atomic.Int64
+	respondN        atomic.Int64
+	reshapeN        atomic.Int64
 }
 
 func New(dataDir string, sel embed.Selection) *Handler {
@@ -178,12 +181,16 @@ func (h *Handler) AdminAction(ctx context.Context, name string, payload json.Raw
 		h.mu.Lock()
 		store := h.store
 		h.backfillStarted = false
+		h.backfillState = "running"
 		h.mu.Unlock()
+		h.backfillScanned.Store(0)
+		h.backfillIndexed.Store(0)
+		gen := h.backfillGen.Add(1)
 		if store != nil {
 			_ = store.SetMeta(ctx, metaWatermark, "")
 		}
 		h.startBackfill(context.WithoutCancel(ctx))
-		return json.Marshal(map[string]any{"ok": true})
+		return json.Marshal(map[string]any{"ok": true, "generation": gen})
 	case "test_store":
 		h.mu.RLock()
 		store := h.store
@@ -226,18 +233,21 @@ func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
 		}
 	}
 	body, _ := json.Marshal(map[string]any{
-		"backend":            stats.Backend,
-		"active":             stats.Active,
-		"inactive":           stats.Inactive,
-		"embeddings":         stats.Embeddings,
-		"embedding_mismatch": stats.EmbeddingMismatch,
-		"backfill":           bf,
-		"intercept_n":        h.interceptN.Load(),
-		"passthrough_n":      h.passthroughN.Load(),
-		"respond_n":          h.respondN.Load(),
-		"reshape_n":          h.reshapeN.Load(),
-		"settings":           st.redacted(),
-		"assets":             embed.InspectAssets(h.dataDir),
+		"backend":             stats.Backend,
+		"active":              stats.Active,
+		"inactive":            stats.Inactive,
+		"embeddings":          stats.Embeddings,
+		"embedding_mismatch":  stats.EmbeddingMismatch,
+		"backfill":            bf,
+		"backfill_generation": h.backfillGen.Load(),
+		"backfill_scanned":    h.backfillScanned.Load(),
+		"backfill_indexed":    h.backfillIndexed.Load(),
+		"intercept_n":         h.interceptN.Load(),
+		"passthrough_n":       h.passthroughN.Load(),
+		"respond_n":           h.respondN.Load(),
+		"reshape_n":           h.reshapeN.Load(),
+		"settings":            st.redacted(),
+		"assets":              embed.InspectAssets(h.dataDir),
 		"embedder": map[string]any{
 			"model_id":       sel.ModelID,
 			"source":         sel.Source,
@@ -531,6 +541,25 @@ func RunLifecycleHook(ctx context.Context, dataDir, settingsJSON string) error {
 		RuntimeURL: st.EmbedRuntimeURL,
 	})
 	return err
+}
+
+// RunUpdateHook is --hook=update: apply index schema migrations without re-downloading MiniLM.
+func RunUpdateHook(ctx context.Context, dataDir, settingsJSON string) error {
+	st, err := parseSettings(json.RawMessage(settingsJSON))
+	if err != nil {
+		st = defaultSettings()
+	}
+	sec, _ := loadSecretsFile(dataDir)
+	var store index.Store
+	if st.IndexBackend == "postgres" {
+		store, err = index.OpenPostgres(ctx, postgresDSN(st, sec.PostgresPassword), embed.Fake{})
+	} else {
+		store, err = index.OpenTurso(ctx, filepath.Join(dataDir, "conduit-index.db"), embed.Fake{})
+	}
+	if err != nil {
+		return err
+	}
+	return store.Close()
 }
 
 // RunUninstallHook is --hook=uninstall: delete downloaded MiniLM / ORT blobs only.

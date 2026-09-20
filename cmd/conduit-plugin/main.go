@@ -26,6 +26,12 @@ func main() {
 				os.Exit(1)
 			}
 			os.Exit(0)
+		case a == "--hook=update":
+			if err := handler.RunUpdateHook(context.Background(), dataDir, os.Getenv(sdk.EnvPluginSettings)); err != nil {
+				fmt.Fprintf(os.Stderr, "update: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
 		case a == "--hook=install" || a == "--hook=launch":
 			if err := handler.RunLifecycleHook(context.Background(), dataDir, os.Getenv(sdk.EnvPluginSettings)); err != nil {
 				fmt.Fprintf(os.Stderr, "asset setup: %v\n", err)

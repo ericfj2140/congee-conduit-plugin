@@ -1,7 +1,7 @@
 <script>
 	import Tooltip from '../lib/Tooltip.svelte';
 
-	let { status = {}, ready = false, busy = false, onrebuild } = $props();
+	let { status = {}, ready = false, busy = false, hint = '', onrebuild } = $props();
 
 	function n(v) {
 		return typeof v === 'number' ? v : 0;
@@ -147,26 +147,45 @@
 		</dl>
 	</div>
 
-	<div class="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-		<div>
-			<div class="flex items-center gap-1.5">
-				<div class="text-sm font-medium text-neutral-900 dark:text-neutral-100">Rebuild index</div>
-				<Tooltip
-					label="About Rebuild"
-					tip="Re-scan relay events into the Conduit store and re-embed documents. Use after changing kinds, the embedder, or if embeddings look orphaned. Ready must be true before intercept ranking is live."
-				/>
+	<div class="space-y-3 rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+		<div class="flex items-center justify-between gap-3">
+			<div>
+				<div class="flex items-center gap-1.5">
+					<div class="text-sm font-medium text-neutral-900 dark:text-neutral-100">Rebuild index</div>
+					<Tooltip
+						label="About Rebuild"
+						tip="Re-scan relay events into the Conduit store and re-embed documents. Use after changing kinds, the embedder, or if embeddings look orphaned. Ready must be true before intercept ranking is live."
+					/>
+				</div>
+				<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+					Re-scan relay events into the Conduit store. Ready is {ready ? 'true' : 'false'}.
+				</p>
 			</div>
-			<p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-				Re-scan relay events into the Conduit store. Ready is {ready ? 'true' : 'false'}.
-			</p>
+			<button
+				class="inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-100 dark:text-neutral-900"
+				type="button"
+				disabled={busy}
+				aria-busy={busy}
+				onclick={() => void confirmRebuild()}
+			>
+				{#if busy}
+					<span
+						class="inline-block size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
+						aria-hidden="true"
+					></span>
+					Rebuilding…
+				{:else}
+					Rebuild
+				{/if}
+			</button>
 		</div>
-		<button
-			class="rounded-lg border border-neutral-300 bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-100 dark:text-neutral-900"
-			type="button"
-			disabled={busy}
-			onclick={() => void confirmRebuild()}
-		>
-			{busy ? 'Working…' : 'Rebuild'}
-		</button>
+		{#if hint}
+			<p class="text-sm text-neutral-600 dark:text-neutral-300">{hint}</p>
+		{:else if status.backfill === 'running'}
+			<p class="text-sm text-neutral-600 dark:text-neutral-300">
+				Backfill running… {n(status.backfill_scanned)} scanned, {n(status.backfill_indexed)} indexed ·
+				{n(status.active)} listings · {n(status.embeddings)} embeddings
+			</p>
+		{/if}
 	</div>
 </section>

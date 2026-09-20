@@ -50,6 +50,7 @@
 	let loading = $state(true);
 	let saving = $state(false);
 	let actionBusy = $state(false);
+	let rebuildHint = $state('');
 	let testBusy = $state(false);
 	let testResult = $state('');
 	let embedTestBusy = $state(false);
@@ -62,6 +63,28 @@
 	function apiError(json, fallback) {
 		if (json && typeof json.error === 'string' && json.error) return json.error;
 		return fallback;
+	}
+
+	function applyStatusPayload(j) {
+		ready = j.ready === true;
+		pluginStatus = j.status && typeof j.status === 'object' ? j.status : {};
+		relayType = typeof j.relay_database_type === 'string' ? j.relay_database_type : '';
+	}
+
+	async function refreshStatus() {
+		const statusRes = await pluginApi('GET', PATHS.status);
+		if (statusRes.status && statusRes.status >= 400) {
+			throw new Error(apiError(statusRes.json, `Status failed (${statusRes.status})`));
+		}
+		applyStatusPayload(statusRes.json || {});
+	}
+
+	function sleep(ms) {
+		return new Promise((resolve) => setTimeout(resolve, ms));
+	}
+
+	function n(v) {
+		return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 	}
 
 	async function loadAll() {
@@ -82,10 +105,7 @@
 			if (statusRes.status && statusRes.status >= 400) {
 				loadError = loadError || apiError(statusRes.json, `Status failed (${statusRes.status})`);
 			} else {
-				const j = statusRes.json || {};
-				ready = j.ready === true;
-				pluginStatus = j.status && typeof j.status === 'object' ? j.status : {};
-				relayType = typeof j.relay_database_type === 'string' ? j.relay_database_type : '';
+				applyStatusPayload(statusRes.json || {});
 			}
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'load failed';
@@ -122,15 +142,45 @@
 	async function rebuild() {
 		actionBusy = true;
 		saveError = '';
+		rebuildHint = 'Starting rebuild…';
 		try {
 			const res = await pluginApi('POST', PATHS.rebuild);
 			if (res.status && res.status >= 400) {
 				saveError = apiError(res.json, `Rebuild failed (${res.status})`);
+				rebuildHint = '';
 				return;
 			}
-			await loadAll();
+			const wantGen = n(res.json?.generation);
+			const deadline = Date.now() + 10 * 60 * 1000;
+			while (Date.now() < deadline) {
+				await refreshStatus();
+				const st = pluginStatus;
+				const bf = typeof st.backfill === 'string' ? st.backfill : '';
+				const gen = n(st.backfill_generation);
+				const scanned = n(st.backfill_scanned);
+				const indexed = n(st.backfill_indexed);
+				if (wantGen > 0 && gen < wantGen) {
+					rebuildHint = 'Waiting for rebuild to start…';
+					await sleep(400);
+					continue;
+				}
+				if (typeof bf === 'string' && bf.startsWith('error')) {
+					saveError = bf;
+					rebuildHint = '';
+					return;
+				}
+				if (bf === 'running' || bf === '') {
+					rebuildHint = `Scanning relay events… ${scanned} scanned, ${indexed} indexed · ${n(st.active)} listings · ${n(st.embeddings)} embeddings`;
+					await sleep(1000);
+					continue;
+				}
+				rebuildHint = `Rebuild ${bf || 'complete'}. ${n(st.active)} listings · ${n(st.embeddings)} embeddings.`;
+				return;
+			}
+			rebuildHint = 'Rebuild is still running in the background. Counts will keep updating on Overview.';
 		} catch (e) {
 			saveError = e instanceof Error ? e.message : 'rebuild failed';
+			rebuildHint = '';
 		} finally {
 			actionBusy = false;
 		}
@@ -292,7 +342,7 @@
 		{#if loading}
 			<p class="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
 		{:else if route === 'overview'}
-			<Overview status={pluginStatus} {ready} busy={actionBusy} onrebuild={rebuild} />
+			<Overview status={pluginStatus} {ready} busy={actionBusy} hint={rebuildHint} onrebuild={rebuild} />
 		{:else if route === 'storage'}
 			<Storage {settings} {relayType} {testResult} {testBusy} ontest={testStore} />
 		{:else if route === 'indexes'}

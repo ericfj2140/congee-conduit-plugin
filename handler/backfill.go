@@ -23,8 +23,11 @@ func (h *Handler) startBackfill(ctx context.Context) {
 }
 
 func (h *Handler) runBackfill(ctx context.Context) {
+	myGen := h.backfillGen.Load()
 	if h.host == nil || h.store == nil {
-		h.setBackfill("idle")
+		if h.backfillGen.Load() == myGen {
+			h.setBackfill("idle")
+		}
 		return
 	}
 	h.setBackfill("running")
@@ -39,7 +42,12 @@ func (h *Handler) runBackfill(ctx context.Context) {
 	var since int64
 	for {
 		if ctx.Err() != nil {
-			h.setBackfill("stopped")
+			if h.backfillGen.Load() == myGen {
+				h.setBackfill("stopped")
+			}
+			return
+		}
+		if h.backfillGen.Load() != myGen {
 			return
 		}
 		lim := backfillPage
@@ -50,12 +58,15 @@ func (h *Handler) runBackfill(ctx context.Context) {
 		}
 		evs, err := h.host.QueryEvents(ctx, []sdk.Filter{f})
 		if err != nil {
-			h.setBackfill("error: " + err.Error())
+			if h.backfillGen.Load() == myGen {
+				h.setBackfill("error: " + err.Error())
+			}
 			return
 		}
 		if len(evs) == 0 {
 			break
 		}
+		h.backfillScanned.Add(int64(len(evs)))
 		var minCreated int64
 		for i, ev := range evs {
 			l, ok := listing.FromEvent(listing.Event{
@@ -64,6 +75,8 @@ func (h *Handler) runBackfill(ctx context.Context) {
 			if ok {
 				if err := h.store.Upsert(ctx, l); err != nil {
 					h.log(ctx, "error", "backfill upsert", map[string]string{"error": err.Error()})
+				} else {
+					h.backfillIndexed.Add(1)
 				}
 			}
 			if i == 0 || ev.CreatedAt < minCreated {
@@ -79,7 +92,9 @@ func (h *Handler) runBackfill(ctx context.Context) {
 			break
 		}
 	}
-	h.setBackfill("complete")
+	if h.backfillGen.Load() == myGen {
+		h.setBackfill("complete")
+	}
 }
 
 func (h *Handler) setBackfill(s string) {

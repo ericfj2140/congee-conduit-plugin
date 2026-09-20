@@ -1,9 +1,33 @@
+let requestSeq = 0;
+
+export function newRequestId() {
+	requestSeq += 1;
+	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+		return `${requestSeq}-${crypto.randomUUID()}`;
+	}
+	const bytes = new Uint8Array(16);
+	if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+		crypto.getRandomValues(bytes);
+	} else {
+		for (let i = 0; i < bytes.length; i++) {
+			bytes[i] = Math.floor(Math.random() * 256);
+		}
+	}
+	const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+	return `${requestSeq}-${hex}`;
+}
+
 export function pluginApi(method, path, body) {
-	const id = crypto.randomUUID();
-	return new Promise((resolve) => {
+	const id = newRequestId();
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			window.removeEventListener('message', onMsg);
+			reject(new Error('plugin API timed out'));
+		}, 60_000);
 		function onMsg(ev) {
 			const d = ev.data;
 			if (!d || d.type !== 'congee:plugin-api-result' || d.id !== id) return;
+			clearTimeout(timer);
 			window.removeEventListener('message', onMsg);
 			resolve({ status: d.status, json: d.json });
 		}
