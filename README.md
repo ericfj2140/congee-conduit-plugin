@@ -23,7 +23,7 @@ Build with `CGO_ENABLED=1` (Turso/libSQL + onnxruntime).
 
 ## Install
 
-GitHub Releases ship per-platform tarballs (`plugin.json` + `bin/conduit-plugin` + `ui/`). In the Congee admin UI, **Plugins → Install** with the tarball URL and the **archive** SHA-256 from the release notes.
+GitHub Releases ship per-platform tarballs (`plugin.json` + `bin/conduit-plugin` + `ui/`) for `linux_amd64`, `linux_arm64`, and `darwin_arm64`. (go-libsql does not vendor a `darwin_amd64` C library, so Intel macOS is not released.) In the Congee admin UI, **Plugins → Install** with the tarball URL and the **archive** SHA-256 from the release notes.
 
 Raise `plugins.intercept_timeout_ms` to at least 200 (250 in Congee `config.example.json`).
 

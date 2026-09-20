@@ -38,9 +38,7 @@ jobs:
           - os: macos-14
             goos: darwin
             goarch: arm64
-          - os: macos-15-intel
-            goos: darwin
-            goarch: amd64
+          # go-libsql does not vendor lib/darwin_amd64; native Intel CGO cannot link.
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
