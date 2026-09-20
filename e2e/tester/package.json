@@ -1,0 +1,9 @@
+{
+  "name": "conduit-release-e2e",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "nostr-tools": "^2.17.0",
+    "ws": "^8.18.3"
+  }
+}

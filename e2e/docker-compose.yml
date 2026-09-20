@@ -1,0 +1,38 @@
+services:
+  congee:
+    build:
+      context: ${CONGEE_DIR:-../../congee}
+      dockerfile: Dockerfile
+    environment:
+      ENABLE_ADMIN_UI: "true"
+      ADMIN_PASSWORD: e2e-admin
+      CONGEE_DATA_DIR: /data
+    volumes:
+      - congee-data:/data
+    expose:
+      - "3334"
+      - "3335"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/congee", "version"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  tester:
+    build: ./tester
+    depends_on:
+      congee:
+        condition: service_started
+    environment:
+      CONGEE_RELAY: ws://congee:3334/
+      CONGEE_ADMIN: http://congee:3335
+      ADMIN_PASSWORD: e2e-admin
+      PLUGIN_REPO: ${PLUGIN_REPO:-michmich112/congee-conduit-plugin}
+      PLUGIN_TAG: ${PLUGIN_TAG:-}
+      PLUGIN_INSTALL_URL: ${PLUGIN_INSTALL_URL:-}
+      PLUGIN_INSTALL_SHA256: ${PLUGIN_INSTALL_SHA256:-}
+    volumes:
+      - congee-data:/data:ro
+
+volumes:
+  congee-data:

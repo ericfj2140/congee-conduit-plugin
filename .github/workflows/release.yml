@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Override bump type (major, minor, patch, none)
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.bump.outputs.skip }}
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: bump
+        run: scripts/detect-bump.sh >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      GOPROXY: https://proxy.golang.org,direct
+      GONOSUMDB: github.com/michmich112/congee
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: web
+      - name: Build plugin
+        env:
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir -p dist/pkg/bin
+          go build -ldflags "-X github.com/michmich112/conduit-plugin/handler.Version=${VERSION}" \
+            -o dist/pkg/bin/conduit-plugin ./cmd/conduit-plugin
+          python3 - <<'PY'
+          import json, os
+          p = "plugin.json"
+          with open(p) as f:
+              m = json.load(f)
+          m["version"] = os.environ["VERSION"]
+          os.makedirs("dist/pkg", exist_ok=True)
+          with open("dist/pkg/plugin.json", "w") as f:
+              json.dump(m, f, indent=2)
+              f.write("\n")
+          PY
+          cp -R ui dist/pkg/ui
+      - name: Hook smoke (fake, no network)
+        env:
+          CONDUIT_EMBEDDER: fake
+          CONGEE_PLUGIN_DATA_DIR: ${{ runner.temp }}/hookdata
+        run: |
+          mkdir -p "$CONGEE_PLUGIN_DATA_DIR"
+          ./dist/pkg/bin/conduit-plugin --hook=install
+          ./dist/pkg/bin/conduit-plugin --hook=launch
+          ./dist/pkg/bin/conduit-plugin --hook=uninstall
+      - name: Package tarball
+        run: |
+          tar -czf "conduit-plugin-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" -C dist/pkg .
+          if command -v sha256sum >/dev/null; then
+            sha256sum "conduit-plugin-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" | tee "conduit-plugin-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz.sha256"
+          else
+            shasum -a 256 "conduit-plugin-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" | tee "conduit-plugin-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz.sha256"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conduit-plugin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            conduit-plugin-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+            conduit-plugin-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz.sha256
+
+  release:
+    needs: [version, build]
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Notes
+        id: notes
+        run: |
+          {
+            echo "Conduit plugin v${{ needs.version.outputs.version }}"
+            echo
+            echo "Install the tarball matching your relay host. Congee verifies the **archive** SHA-256."
+            echo
+            echo '```'
+            cat dist/*.sha256
+            echo '```'
+          } > notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: v${{ needs.version.outputs.version }}
+          body_path: notes.md
+          files: dist/*
