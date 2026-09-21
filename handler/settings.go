@@ -154,15 +154,6 @@ func (s Settings) allIndexKinds() []int {
 	return uniqueInts(out)
 }
 
-func (s Settings) interceptKinds() []int {
-	out := append([]int{}, s.ProductKinds...)
-	out = append(out, s.StallKinds...)
-	if s.IndexDrafts {
-		out = append(out, s.DraftKinds...)
-	}
-	return uniqueInts(out)
-}
-
 func uniqueInts(in []int) []int {
 	seen := map[int]struct{}{}
 	var out []int
@@ -204,9 +195,7 @@ func subscriptionsFor(s Settings) []sdk.TrafficSubscription {
 		{Kinds: s.allIndexKinds(), OnStoredEvent: true},
 		{
 			MessageTypes: []string{"REQ"},
-			Kinds:        s.interceptKinds(),
-			ReqHasSearch: true,
-			ReqTagNames:  []string{"g"},
+			Kinds:        s.ProductKinds,
 			InterceptREQ: true,
 		},
 	}

@@ -20,6 +20,10 @@ func TestDecideSearchRespond(t *testing.T) {
 	if d.kind != decRespondSearch {
 		t.Fatalf("%v", d.kind)
 	}
+	d = decide(sdk.Req{Filters: []sdk.Filter{{Kinds: []int{30018}, Search: "bike"}}}, st, true)
+	if d.kind != decRespondSearch {
+		t.Fatalf("nip-15 product: %v", d.kind)
+	}
 }
 
 func TestDecideInjectKinds(t *testing.T) {
@@ -36,6 +40,21 @@ func TestDecideGeo(t *testing.T) {
 	d := decide(sdk.Req{Filters: []sdk.Filter{{Kinds: []int{30402}, Tags: map[string][]string{"g": {"9q8"}}}}}, st, true)
 	if d.kind != decRespondGeo {
 		t.Fatalf("%v", d.kind)
+	}
+}
+
+func TestDecideGeoWithoutProductKindsPassthrough(t *testing.T) {
+	st := defaultSettings()
+	cases := []sdk.Req{
+		{Filters: []sdk.Filter{{Tags: map[string][]string{"g": {"9q8"}}}}},
+		{Filters: []sdk.Filter{{Kinds: []int{1}, Tags: map[string][]string{"g": {"9q8"}}}}},
+		{Filters: []sdk.Filter{{Kinds: []int{30017}, Tags: map[string][]string{"g": {"9q8"}}}}},
+	}
+	for i, req := range cases {
+		d := decide(req, st, true)
+		if d.kind != decPassthrough {
+			t.Fatalf("case %d: %v", i, d.kind)
+		}
 	}
 }
 

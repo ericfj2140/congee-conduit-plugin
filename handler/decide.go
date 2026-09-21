@@ -27,7 +27,6 @@ func decide(req sdk.Req, st Settings, ready bool) decision {
 	}
 	product := toSet(st.ProductKinds)
 	stall := toSet(st.StallKinds)
-	all := toSet(st.interceptKinds())
 
 	for _, f := range req.Filters {
 		hasSearch := strings.TrimSpace(f.Search) != ""
@@ -51,9 +50,6 @@ func decide(req sdk.Req, st Settings, ready bool) decision {
 			if stall[k] {
 				hitsStall = true
 			}
-			if all[k] {
-				// indexed kind
-			}
 		}
 		_ = hitsStall
 
@@ -65,7 +61,7 @@ func decide(req sdk.Req, st Settings, ready bool) decision {
 		if hasSearch && hitsProduct {
 			return decision{kind: decRespondSearch}
 		}
-		if hasGeo && !hasSearch {
+		if hasGeo && !hasSearch && hitsProduct {
 			return decision{kind: decRespondGeo}
 		}
 		if st.RankAllProductReqs && hitsProduct {
