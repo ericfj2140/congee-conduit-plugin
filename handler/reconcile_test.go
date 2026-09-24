@@ -366,6 +366,20 @@ func TestReconciliationReadFailureIsNotComplete(t *testing.T) {
 	}
 }
 
+func TestCallbackReadFailureInvalidatesReadyState(t *testing.T) {
+	ctx := context.Background()
+	host := newCanonicalHost()
+	h, _ := testHandler(t, filepath.Join(t.TempDir(), "index.db"), host)
+	a := product("a", "bike", 10)
+	host.readErr = errors.New("source unavailable")
+	if err := h.OnStoredEvent(ctx, a, true); err == nil {
+		t.Fatal("expected source read failure")
+	}
+	if h.ready || !strings.HasPrefix(h.backfillState, "error:") {
+		t.Fatalf("callback failure reported as ready: %q ready=%v", h.backfillState, h.ready)
+	}
+}
+
 func TestReconciliationIndexFailureIsNotComplete(t *testing.T) {
 	ctx := context.Background()
 	host := newCanonicalHost()

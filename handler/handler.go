@@ -103,9 +103,17 @@ func (h *Handler) OnStoredEvent(ctx context.Context, ev sdk.Event, stored bool) 
 	store := h.store
 	h.mu.RUnlock()
 	if store == nil {
-		return fmt.Errorf("index store unavailable")
+		err := fmt.Errorf("index store unavailable")
+		h.backfillGen.Add(1)
+		h.setBackfill("error: " + err.Error())
+		return err
 	}
-	return h.reconcileHint(ctx, ev, st, store)
+	if err := h.reconcileHint(ctx, ev, st, store); err != nil {
+		h.backfillGen.Add(1)
+		h.setBackfill("error: " + err.Error())
+		return err
+	}
+	return nil
 }
 
 func (h *Handler) InterceptREQ(ctx context.Context, req sdk.Req) (*sdk.InterceptResult, error) {
