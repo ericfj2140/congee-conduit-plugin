@@ -97,6 +97,7 @@ type Store interface {
 	Upsert(ctx context.Context, l listing.Listing) error
 	UpsertUserRank(ctx context.Context, rank nip85.UserRank) error
 	MerchantPubkeys(ctx context.Context) ([]string, error)
+	HasActiveMerchant(ctx context.Context, pubkey string) (bool, error)
 	MarkInactive(ctx context.Context, pubkey string, eventIDs, coords []string) error
 	Get(ctx context.Context, coord string) (listing.Listing, bool, error)
 	Search(ctx context.Context, q Query) ([]string, error)

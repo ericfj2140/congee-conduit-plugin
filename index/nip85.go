@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -40,6 +41,18 @@ func (s *sqlStore) MerchantPubkeys(ctx context.Context) ([]string, error) {
 		keys = append(keys, key)
 	}
 	return keys, rows.Err()
+}
+
+func (s *sqlStore) HasActiveMerchant(ctx context.Context, pubkey string) (bool, error) {
+	var found int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM listings WHERE pubkey = `+s.ph(1)+` AND status = `+s.ph(2)+` LIMIT 1`, pubkey, listing.StatusActive).Scan(&found)
+	if err == nil {
+		return true, nil
+	}
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return false, err
 }
 
 func (s *sqlStore) userRankScores(ctx context.Context, provider string, targets []string, cutoff int64) (map[string]int, error) {

@@ -48,8 +48,8 @@ deep pagination when listings or scores change.
 ### NIP-85 merchant signal
 
 Product search also uses a selected provider's signed kind 30382 `rank`
-assertions about merchant pubkeys. The plugin indexes the latest assertion per
-provider and target, then joins the target to the listing publisher after text
+assertions about merchant pubkeys. The plugin indexes the latest assertion for
+each indexed merchant, per provider and target, then joins the target to the listing publisher after text
 and vector candidates have been found. Rank 50 is neutral; rank 0 or 100 can
 move a candidate's search score by at most 0.025 in either direction. Missing
 and older-than-14-day assertions are neutral. No assertion is embedded or used

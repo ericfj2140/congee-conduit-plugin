@@ -55,9 +55,12 @@ func TestNIP85StoredEventAndMerchantBackfill(t *testing.T) {
 	if err := h.OnStoredEvent(ctx, assertion, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := h.OnStoredEvent(ctx, assertion, true); err != nil {
+		t.Fatal(err)
+	}
 	stats, err := store.Stats(ctx)
 	if err != nil || stats.NIP85Assertions != 0 {
-		t.Fatalf("wrong or unstored provider accepted: %+v %v", stats, err)
+		t.Fatalf("wrong, unstored, or nonmerchant assertion accepted: %+v %v", stats, err)
 	}
 	listing := sdk.Event{
 		ID: strings.Repeat("2", 64), PubKey: target, Kind: 30402, CreatedAt: time.Now().Unix(),
@@ -69,6 +72,13 @@ func TestNIP85StoredEventAndMerchantBackfill(t *testing.T) {
 	stats, err = store.Stats(ctx)
 	if err != nil || stats.NIP85Assertions != 1 {
 		t.Fatalf("merchant backfill missing: %+v %v", stats, err)
+	}
+	newer := assertion
+	newer.ID = strings.Repeat("3", 64)
+	newer.CreatedAt++
+	newer.Tags = [][]string{{"d", target}, {"rank", "90"}}
+	if err := h.OnStoredEvent(ctx, newer, true); err != nil {
+		t.Fatal(err)
 	}
 	if len(host.filter.Authors) != 1 || host.filter.Authors[0] != provider ||
 		len(host.filter.Kinds) != 1 || host.filter.Kinds[0] != nip85.KindUserAssertion ||

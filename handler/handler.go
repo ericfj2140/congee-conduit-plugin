@@ -111,6 +111,10 @@ func (h *Handler) OnStoredEvent(ctx context.Context, ev sdk.Event, stored bool) 
 		if !ok {
 			return nil
 		}
+		merchant, err := store.HasActiveMerchant(ctx, assertion.Target)
+		if err != nil || !merchant {
+			return err
+		}
 		return store.UpsertUserRank(ctx, assertion)
 	}
 	l, ok := listing.FromEvent(listing.Event{
