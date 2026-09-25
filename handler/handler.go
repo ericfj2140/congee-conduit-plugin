@@ -11,6 +11,7 @@ import (
 	"github.com/michmich112/conduit-plugin/embed"
 	"github.com/michmich112/conduit-plugin/index"
 	"github.com/michmich112/conduit-plugin/listing"
+	"github.com/michmich112/conduit-plugin/nip85"
 	sdk "github.com/michmich112/congee/sdk/plugin"
 )
 
@@ -36,6 +37,7 @@ type Handler struct {
 	host            sdk.Host
 
 	backfillGen     atomic.Int64
+	rankLookup      sync.Map
 	backfillScanned atomic.Int64
 	backfillIndexed atomic.Int64
 	interceptN      atomic.Int64
@@ -60,6 +62,7 @@ func (h *Handler) Handshake(ctx context.Context, settings json.RawMessage) (*sdk
 		return nil, err
 	}
 	h.startBackfill(context.WithoutCancel(ctx))
+	h.startRankBackfill(context.WithoutCancel(ctx))
 	h.mu.RLock()
 	st := h.settings
 	defer h.mu.RUnlock()
@@ -100,13 +103,35 @@ func (h *Handler) OnStoredEvent(ctx context.Context, ev sdk.Event, stored bool) 
 	if store == nil {
 		return nil
 	}
+	if ev.Kind == nip85.KindUserAssertion {
+		if ev.PubKey != st.NIP85ProviderPubkey {
+			return nil
+		}
+		assertion, ok := nip85.ParseUserRank(ev)
+		if !ok {
+			return nil
+		}
+		return store.UpsertUserRank(ctx, assertion)
+	}
 	l, ok := listing.FromEvent(listing.Event{
 		ID: ev.ID, PubKey: ev.PubKey, CreatedAt: ev.CreatedAt, Kind: ev.Kind, Tags: ev.Tags, Content: ev.Content,
 	}, st.IndexDrafts)
 	if !ok {
 		return nil
 	}
-	return store.Upsert(ctx, l)
+	if err := store.Upsert(ctx, l); err != nil {
+		return err
+	}
+	if st.NIP85ProviderPubkey != "" && l.Status == listing.StatusActive && nip85.ValidPubkey(l.PubKey) {
+		key := st.NIP85ProviderPubkey + ":" + l.PubKey
+		if _, loaded := h.rankLookup.LoadOrStore(key, struct{}{}); !loaded {
+			if err := h.backfillRankTargets(ctx, store, st.NIP85ProviderPubkey, []string{l.PubKey}); err != nil {
+				h.rankLookup.Delete(key)
+				h.log(ctx, "warn", "NIP-85 merchant lookup failed", map[string]string{"error": err.Error()})
+			}
+		}
+	}
+	return nil
 }
 
 func (h *Handler) InterceptREQ(ctx context.Context, req sdk.Req) (*sdk.InterceptResult, error) {
@@ -152,6 +177,8 @@ func (h *Handler) InterceptREQ(ctx context.Context, req sdk.Req) (*sdk.Intercept
 		ActiveOnly:         st.ActiveFilter,
 		VectorEnabled:      st.VectorEnabled && h.embedSel.VectorRanking(),
 		GeoEnabled:         st.GeoEnabled,
+		NIP85Provider:      st.NIP85ProviderPubkey,
+		NIP85MaxAgeDays:    st.NIP85MaxAgeDays,
 	}
 	if d.kind == decRespondGeo {
 		q.Search = ""
@@ -174,6 +201,7 @@ func (h *Handler) ApplySettings(ctx context.Context, settings json.RawMessage) (
 	if err := h.apply(ctx, settings, false); err != nil {
 		return nil, err
 	}
+	h.startRankBackfill(context.WithoutCancel(ctx))
 	h.mu.RLock()
 	st := h.settings
 	h.mu.RUnlock()
@@ -195,6 +223,7 @@ func (h *Handler) AdminAction(ctx context.Context, name string, payload json.Raw
 			_ = store.SetMeta(ctx, metaWatermark, "")
 		}
 		h.startBackfill(context.WithoutCancel(ctx))
+		h.startRankBackfill(context.WithoutCancel(ctx))
 		return json.Marshal(map[string]any{"ok": true, "generation": gen})
 	case "test_store":
 		h.mu.RLock()
@@ -248,6 +277,8 @@ func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
 		"search_over_200ms":       stats.SearchOver200ms,
 		"search_semantic":         stats.SearchSemantic,
 		"search_lexical_fallback": stats.SearchLexicalFallback,
+		"nip85_assertions":        stats.NIP85Assertions,
+		"nip85_read_errors":       stats.NIP85ReadErrors,
 		"backfill":                bf,
 		"backfill_generation":     h.backfillGen.Load(),
 		"backfill_scanned":        h.backfillScanned.Load(),

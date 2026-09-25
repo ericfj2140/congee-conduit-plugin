@@ -32,6 +32,7 @@ type sqlStore struct {
 	searchOver200ms       atomic.Uint64
 	searchSemantic        atomic.Uint64
 	searchLexicalFallback atomic.Uint64
+	nip85ReadErrors       atomic.Uint64
 }
 
 const tursoMaxOpenConns = 8
@@ -369,9 +370,11 @@ func (s *sqlStore) Stats(ctx context.Context) (Stats, error) {
 	st.SearchOver200ms = s.searchOver200ms.Load()
 	st.SearchSemantic = s.searchSemantic.Load()
 	st.SearchLexicalFallback = s.searchLexicalFallback.Load()
+	st.NIP85ReadErrors = s.nip85ReadErrors.Load()
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listings WHERE status = 'active'`).Scan(&st.Active)
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listings WHERE status != 'active'`).Scan(&st.Inactive)
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listing_embeddings`).Scan(&st.Embeddings)
+	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM nip85_user_ranks`).Scan(&st.NIP85Assertions)
 	if s.embedder != nil {
 		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM listings l LEFT JOIN listing_embeddings e ON l.coord = e.coord
 WHERE l.status = 'active' AND (e.coord IS NULL OR e.model != `+s.ph(1)+` OR e.dim != `+s.ph(2)+`)`, s.embedder.ModelID(), s.embedder.Dim()).Scan(&st.EmbeddingMismatch)

@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS index_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS nip85_user_ranks (
+  provider TEXT NOT NULL,
+  target TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  rank INTEGER NOT NULL,
+  PRIMARY KEY (provider, target)
+);
 CREATE INDEX IF NOT EXISTS listings_status_kind ON listings(status, kind);
 CREATE INDEX IF NOT EXISTS listings_pubkey ON listings(pubkey);
 CREATE INDEX IF NOT EXISTS listings_event_id ON listings(event_id);
@@ -72,6 +80,14 @@ CREATE TABLE IF NOT EXISTS listing_embeddings (
 CREATE TABLE IF NOT EXISTS index_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS nip85_user_ranks (
+  provider TEXT NOT NULL,
+  target TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  rank INTEGER NOT NULL,
+  PRIMARY KEY (provider, target)
 );
 CREATE INDEX IF NOT EXISTS listings_status_kind ON listings(status, kind);
 CREATE INDEX IF NOT EXISTS listings_pubkey ON listings(pubkey);

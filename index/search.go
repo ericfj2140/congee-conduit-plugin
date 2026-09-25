@@ -398,6 +398,26 @@ func (s *sqlStore) searchRanked(ctx context.Context, q Query, limit, capN int, e
 	items := make([]searchCandidate, 0, len(pool))
 	hasCurrentVector := false
 	now := nowUnix()
+	var ranks map[string]int
+	if q.NIP85Provider != "" {
+		targets := make([]string, 0, len(pool))
+		seen := make(map[string]bool, len(pool))
+		for _, item := range pool {
+			if item.PubKey != "" && !seen[item.PubKey] {
+				seen[item.PubKey] = true
+				targets = append(targets, item.PubKey)
+			}
+		}
+		maxAge := q.NIP85MaxAgeDays
+		if maxAge <= 0 {
+			maxAge = 14
+		}
+		var err error
+		ranks, err = s.userRankScores(ctx, q.NIP85Provider, targets, now-int64(maxAge)*24*60*60)
+		if err != nil {
+			s.nip85ReadErrors.Add(1)
+		}
+	}
 	for _, item := range pool {
 		hasCurrentVector = hasCurrentVector || item.HasVector
 		// Age can reorder comparable matches, but it cannot make an unrelated
@@ -412,6 +432,11 @@ func (s *sqlStore) searchRanked(ctx context.Context, q Query, limit, capN int, e
 		default:
 			// Missing embeddings must not hide real lexical matches.
 			item.Score = 0.65*item.Lexical + freshness
+		}
+		if rank, ok := ranks[item.PubKey]; ok {
+			// A missing assertion is neutral. Published ranks move the score
+			// by at most 0.025 in either direction, after relevance retrieval.
+			item.Score += 0.025 * (float64(rank) - 50) / 50
 		}
 		items = append(items, item)
 	}
