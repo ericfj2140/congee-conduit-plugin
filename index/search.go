@@ -25,7 +25,10 @@ func searchSQL(ctx context.Context, s *sqlStore, q Query) ([]string, error) {
 	needGeoJoin := q.GeoEnabled && len(q.GeoPrefixes) > 0
 	sortByProximity := needGeoJoin && !wantSearch
 
-	where := []string{"NOT EXISTS (SELECT 1 FROM reconcile_jobs j WHERE j.coord = l.coord OR (j.coord = '' AND j.author = l.pubkey AND j.kind = l.kind))"}
+	where := []string{
+		"NOT EXISTS (SELECT 1 FROM reconcile_jobs j WHERE j.coord = l.coord)",
+		"NOT EXISTS (SELECT 1 FROM reconcile_jobs j WHERE j.coord = '' AND j.author = l.pubkey AND j.kind = l.kind)",
+	}
 	args := []any{}
 	n := 1
 	add := func(cond string, v ...any) {
