@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -143,15 +144,18 @@ func testHandler(t *testing.T, path string, host *canonicalHost) (*Handler, inde
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
 	h := New(t.TempDir(), embed.Selection{Embedder: embed.Fake{}})
 	h.store, h.host, h.ready = store, host, true
+	t.Cleanup(func() { _ = h.Close() })
 	return h, store
 }
 
 func assertCanonical(t *testing.T, h *Handler, store index.Store, coord, wantID string) {
 	t.Helper()
 	ctx := context.Background()
+	if err := h.reconcileLiveBatch(ctx); err != nil {
+		t.Fatal(err)
+	}
 	l, ok, err := store.Get(ctx, coord)
 	if err != nil {
 		t.Fatal(err)
@@ -341,10 +345,7 @@ func TestExplicitRebuildReconcilesPersistedRevision(t *testing.T) {
 		h.mu.RLock()
 		ready, state := h.ready, h.backfillState
 		h.mu.RUnlock()
-		if ready {
-			if state != "complete" {
-				t.Fatalf("rebuild state %q", state)
-			}
+		if ready && state == "sweep complete" {
 			break
 		}
 		select {
@@ -353,6 +354,7 @@ func TestExplicitRebuildReconcilesPersistedRevision(t *testing.T) {
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
+	h.stopWork()
 	assertCanonical(t, h, store, coord, b.ID)
 }
 
@@ -366,17 +368,24 @@ func TestReconciliationReadFailureIsNotComplete(t *testing.T) {
 	}
 }
 
-func TestCallbackReadFailureInvalidatesReadyState(t *testing.T) {
+func TestCallbackReadFailureIsQueuedWithoutGlobalShutdown(t *testing.T) {
 	ctx := context.Background()
 	host := newCanonicalHost()
-	h, _ := testHandler(t, filepath.Join(t.TempDir(), "index.db"), host)
+	h, store := testHandler(t, filepath.Join(t.TempDir(), "index.db"), host)
 	a := product("a", "bike", 10)
 	host.readErr = errors.New("source unavailable")
-	if err := h.OnStoredEvent(ctx, a, true); err == nil {
-		t.Fatal("expected source read failure")
+	if err := h.OnStoredEvent(ctx, a, true); err != nil {
+		t.Fatal(err)
 	}
-	if h.ready || !strings.HasPrefix(h.backfillState, "error:") {
-		t.Fatalf("callback failure reported as ready: %q ready=%v", h.backfillState, h.ready)
+	if !h.ready {
+		t.Fatal("one queued invalidation disabled unrelated search")
+	}
+	jobs, err := store.(index.ReconcileStore).Jobs(ctx, time.Now().UnixMilli(), 4)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("jobs=%v err=%v", jobs, err)
+	}
+	if err := h.processJob(ctx, h.settings, store, store.(index.ReconcileStore), jobs[0]); err == nil {
+		t.Fatal("expected source failure")
 	}
 }
 
@@ -398,5 +407,63 @@ func TestReconciliationIndexFailureIsNotComplete(t *testing.T) {
 	}
 	if _, ok, err := store.Get(ctx, listing.CoordOf(a.Kind, a.PubKey, "bike")); err != nil || ok {
 		t.Fatalf("failed index write persisted a listing: exists=%v err=%v", ok, err)
+	}
+}
+
+func (h *canonicalHost) QueryEventsPage(ctx context.Context, f sdk.Filter, c *sdk.EventCursor, size int) (sdk.EventPage, error) {
+	f.Limit = nil
+	evs, err := h.QueryEvents(ctx, []sdk.Filter{f})
+	if err != nil {
+		return sdk.EventPage{}, err
+	}
+	p := sdk.EventPage{}
+	for _, ev := range evs {
+		if c == nil || ev.CreatedAt < c.CreatedAt || ev.CreatedAt == c.CreatedAt && ev.ID > c.ID {
+			p.Events = append(p.Events, ev)
+		}
+	}
+	if len(p.Events) > size {
+		p.Events = p.Events[:size]
+		last := p.Events[size-1]
+		p.Next = &sdk.EventCursor{CreatedAt: last.CreatedAt, ID: last.ID, FilterHash: "test-filter"}
+	}
+	return p, nil
+}
+
+func (h *Handler) reconcileLiveBatch(ctx context.Context) error {
+	h.mu.RLock()
+	store, st := h.store, h.settings
+	h.mu.RUnlock()
+	var source *sdk.EventCursor
+	after := ""
+	sd, pd := false, false
+	q := store.(index.ReconcileStore)
+	for i := 0; i < 10000; i++ {
+		_, err := h.workStep(ctx, st, store, &source, &after, &sd, &pd)
+		if err != nil {
+			return err
+		}
+		stats, err := q.JobStats(ctx)
+		if err != nil {
+			return err
+		}
+		if stats["failed"].(int) > 0 {
+			return fmt.Errorf("pending retry failures")
+		}
+		if sd && pd && stats["pending"].(int64) == 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf("test reconciliation did not converge")
+}
+func (h *Handler) runBackfill(ctx context.Context) {
+	err := h.reconcileLiveBatch(ctx)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ready = err == nil
+	if err != nil {
+		h.backfillState = "error: " + err.Error()
+	} else {
+		h.backfillState = "complete"
 	}
 }

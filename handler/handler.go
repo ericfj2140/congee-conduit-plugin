@@ -35,9 +35,11 @@ type Handler struct {
 	backfillState   string
 	lastErr         string
 	host            sdk.Host
-	coordLocks      [64]sync.Mutex
-	periodicOnce    sync.Once
-	liveCursor      string
+	lifecycleMu     sync.RWMutex
+	applyMu         sync.Mutex
+	workMu          sync.Mutex
+	workCancel      context.CancelFunc
+	workDone        chan struct{}
 
 	backfillGen     atomic.Int64
 	backfillScanned atomic.Int64
@@ -63,7 +65,6 @@ func (h *Handler) Handshake(ctx context.Context, settings json.RawMessage) (*sdk
 	if err := h.apply(ctx, settings, true); err != nil {
 		return nil, err
 	}
-	h.startPeriodic(context.WithoutCancel(ctx))
 	h.startBackfill(context.WithoutCancel(ctx))
 	h.mu.RLock()
 	st := h.settings
@@ -98,30 +99,33 @@ func (h *Handler) OnStoredEvent(ctx context.Context, ev sdk.Event, stored bool) 
 	if !stored {
 		return nil
 	}
+	h.lifecycleMu.RLock()
+	defer h.lifecycleMu.RUnlock()
 	h.mu.RLock()
-	st := h.settings
-	store := h.store
+	store, st := h.store, h.settings
 	h.mu.RUnlock()
 	if store == nil {
-		err := fmt.Errorf("index store unavailable")
-		h.backfillGen.Add(1)
-		h.setBackfill("error: " + err.Error())
-		return err
+		return fmt.Errorf("index store unavailable")
 	}
-	if err := h.reconcileHint(ctx, ev, st, store); err != nil {
-		h.backfillGen.Add(1)
-		h.setBackfill("error: " + err.Error())
+	if err := h.enqueueHint(ctx, ev, st, store, true); err != nil {
+		h.mu.Lock()
+		h.ready = false
+		h.lastErr = err.Error()
+		h.mu.Unlock()
 		return err
 	}
 	return nil
 }
 
 func (h *Handler) InterceptREQ(ctx context.Context, req sdk.Req) (*sdk.InterceptResult, error) {
+	h.lifecycleMu.RLock()
+	defer h.lifecycleMu.RUnlock()
 	h.interceptN.Add(1)
 	h.mu.RLock()
 	st := h.settings
 	ready := h.ready
 	store := h.store
+	sel := h.embedSel
 	h.mu.RUnlock()
 	d := decide(req, st, ready)
 	if d.kind == decPassthrough {
@@ -151,7 +155,7 @@ func (h *Handler) InterceptREQ(ctx context.Context, req sdk.Req) (*sdk.Intercept
 		GeoMinPrefixLen:    st.GeoMinPrefixLen,
 		SearchCandidateCap: st.SearchCandidateCap,
 		ActiveOnly:         st.ActiveFilter,
-		VectorEnabled:      st.VectorEnabled && h.embedSel.VectorRanking(),
+		VectorEnabled:      st.VectorEnabled && sel.VectorRanking(),
 		GeoEnabled:         st.GeoEnabled,
 	}
 	if d.kind == decRespondGeo {
@@ -185,22 +189,19 @@ func (h *Handler) ApplySettings(ctx context.Context, settings json.RawMessage) (
 func (h *Handler) AdminAction(ctx context.Context, name string, payload json.RawMessage) (json.RawMessage, error) {
 	switch name {
 	case "rebuild":
-		h.mu.Lock()
+		h.applyMu.Lock()
+		defer h.applyMu.Unlock()
+		h.mu.RLock()
 		store := h.store
+		h.mu.RUnlock()
 		if store == nil {
-			h.mu.Unlock()
 			return json.Marshal(map[string]any{"ok": false, "error": "store not open"})
 		}
-		h.backfillStarted = false
-		h.backfillState = "running"
-		h.ready = false
-		h.mu.Unlock()
-		h.backfillScanned.Store(0)
-		h.backfillIndexed.Store(0)
-		gen := h.backfillGen.Add(1)
 		h.startBackfill(context.WithoutCancel(ctx))
-		return json.Marshal(map[string]any{"ok": true, "generation": gen})
+		return json.Marshal(map[string]any{"ok": true, "generation": h.backfillGen.Load()})
 	case "test_store":
+		h.lifecycleMu.RLock()
+		defer h.lifecycleMu.RUnlock()
 		h.mu.RLock()
 		store := h.store
 		h.mu.RUnlock()
@@ -228,6 +229,8 @@ func (h *Handler) AdminAction(ctx context.Context, name string, payload json.Raw
 }
 
 func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
+	h.lifecycleMu.RLock()
+	defer h.lifecycleMu.RUnlock()
 	h.mu.RLock()
 	st := h.settings
 	ready := h.ready
@@ -241,7 +244,12 @@ func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
 			stats = s
 		}
 	}
+	jobs := map[string]any{}
+	if q, ok := store.(index.ReconcileStore); ok {
+		jobs, _ = q.JobStats(ctx)
+	}
 	body, _ := json.Marshal(map[string]any{
+		"reconciliation":      jobs,
 		"backend":             stats.Backend,
 		"active":              stats.Active,
 		"inactive":            stats.Inactive,
@@ -274,6 +282,9 @@ func (h *Handler) Status(ctx context.Context) (*sdk.Status, error) {
 }
 
 func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) error {
+	h.applyMu.Lock()
+	defer h.applyMu.Unlock()
+
 	st, err := parseSettings(raw)
 	if err != nil {
 		return err
@@ -288,7 +299,7 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 		st.EmbedHTTPAPIKey = ""
 	}
 	_ = saveSecretsFile(h.dataDir, sec)
-	h.embedSel = embed.SelectWith(embed.SelectOpts{
+	selected := embed.SelectWith(embed.SelectOpts{
 		ModelPath:        embed.DefaultModelPath(h.dataDir),
 		Provider:         st.EmbedProvider,
 		HTTPURL:          st.EmbedHTTPURL,
@@ -297,7 +308,7 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 		SavedFingerprint: sec.EmbedHTTPFingerprint,
 		Dim:              st.EmbedDim,
 	})
-	e := h.embedSel.Embedder
+	e := selected.Embedder
 	if e != nil {
 		if err := embed.Warm(ctx, e); err != nil {
 			h.mu.Lock()
@@ -317,6 +328,8 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 		h.mu.Unlock()
 		return err
 	}
+	h.stopWork()
+	h.lifecycleMu.Lock()
 	h.mu.Lock()
 	h.backfillGen.Add(1)
 	h.backfillStarted = false
@@ -324,6 +337,7 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 		_ = h.store.Close()
 	}
 	h.store = store
+	h.embedSel = selected
 	h.settings = st
 	h.storeOpen = true
 	h.embedWarm = e != nil
@@ -331,12 +345,17 @@ func (h *Handler) apply(ctx context.Context, raw json.RawMessage, opening bool) 
 	h.backfillState = "running"
 	h.lastErr = ""
 	h.mu.Unlock()
+	h.lifecycleMu.Unlock()
 	keep := listing.DefaultStallKinds()
 	keep = append(keep, listing.DefaultProductKinds()...)
 	keep = append(keep, listing.DefaultDraftKinds()...)
 	keep = append(keep, listing.DefaultDeletionKinds()...)
 	if err := store.PurgeKindsNotIn(ctx, keep); err != nil {
-		h.setBackfill("error: " + err.Error())
+		h.mu.Lock()
+		h.ready = false
+		h.lastErr = err.Error()
+		h.backfillState = "error: " + err.Error()
+		h.mu.Unlock()
 		return err
 	}
 	if !opening {
@@ -373,6 +392,8 @@ type listPayload struct {
 }
 
 func (h *Handler) listListings(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	h.lifecycleMu.RLock()
+	defer h.lifecycleMu.RUnlock()
 	h.mu.RLock()
 	store := h.store
 	h.mu.RUnlock()
@@ -389,6 +410,8 @@ func (h *Handler) listListings(ctx context.Context, payload json.RawMessage) (js
 }
 
 func (h *Handler) listEmbeddings(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	h.lifecycleMu.RLock()
+	defer h.lifecycleMu.RUnlock()
 	h.mu.RLock()
 	store := h.store
 	h.mu.RUnlock()
@@ -405,6 +428,8 @@ func (h *Handler) listEmbeddings(ctx context.Context, payload json.RawMessage) (
 }
 
 func (h *Handler) getEvent(ctx context.Context, payload json.RawMessage) (json.RawMessage, error) {
+	h.lifecycleMu.RLock()
+	defer h.lifecycleMu.RUnlock()
 	var p struct {
 		ID    string `json:"id"`
 		Coord string `json:"coord"`

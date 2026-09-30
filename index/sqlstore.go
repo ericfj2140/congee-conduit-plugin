@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -25,6 +27,8 @@ type sqlStore struct {
 	ann      *ANN
 	qcache   *queryCache
 	writeMu  sync.Mutex
+	coordMu  [64]sync.Mutex
+	epochs   sync.Map
 }
 
 // OpenTurso opens a single-writer libSQL file at path (MaxOpenConns=1).
@@ -125,8 +129,10 @@ func execStatements(ctx context.Context, db *sql.DB, sqlText string) error {
 }
 
 func (s *sqlStore) runWrite(fn func() error) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	if s.backend == "turso" {
+		s.writeMu.Lock()
+		defer s.writeMu.Unlock()
+	}
 	return fn()
 }
 
@@ -153,47 +159,81 @@ func (s *sqlStore) ReplaceCanonical(ctx context.Context, l listing.Listing) erro
 }
 
 func (s *sqlStore) upsert(ctx context.Context, l listing.Listing, enforceOrder bool) error {
+	return s.upsertJob(ctx, l, enforceOrder, nil)
+}
+
+func (s *sqlStore) upsertJob(ctx context.Context, l listing.Listing, enforceOrder bool, job *ReconcileJob) error {
 	if l.IsDeletion {
 		return s.MarkInactive(ctx, l.PubKey, l.DeleteEventIDs, l.DeleteCoords)
 	}
 	if l.Coord == "" {
 		return nil
 	}
+
+	epoch := s.epoch(l.Coord)
+
+	var existingCreated int64
+	var existingID, existingHash, existingModel string
+	row := s.db.QueryRowContext(ctx, `SELECT created_at, event_id, text_hash FROM listings WHERE coord = `+s.ph(1), l.Coord)
+	if err := row.Scan(&existingCreated, &existingID, &existingHash); err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if enforceOrder && existingID != "" {
+		// NIP-01 retains the lowest event ID when timestamps tie.
+		if l.CreatedAt < existingCreated || (l.CreatedAt == existingCreated && l.EventID > existingID) {
+			return nil
+		}
+	}
+	var vec []float32
+	if l.Status == listing.StatusActive && s.embedder != nil {
+		var existingDim int
+		if existingHash == l.TextHash {
+			var blob []byte
+			if err := s.db.QueryRowContext(ctx, `SELECT model, dim, vector FROM listing_embeddings WHERE coord = `+s.ph(1), l.Coord).Scan(&existingModel, &existingDim, &blob); err == nil && existingModel == s.embedder.ModelID() && existingDim == s.embedder.Dim() {
+				vec = bytesToFloats(blob)
+			}
+		}
+		if vec == nil {
+			var err error
+			vec, err = s.embedder.Embed(ctx, l.EmbedText())
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	lock := s.coordLock(l.Coord)
+	lock.Lock()
+	defer lock.Unlock()
 	return s.runWrite(func() error {
-		var existingCreated int64
-		var existingID, existingHash, existingModel string
-		row := s.db.QueryRowContext(ctx, `SELECT created_at, event_id, text_hash FROM listings WHERE coord = `+s.ph(1), l.Coord)
-		if err := row.Scan(&existingCreated, &existingID, &existingHash); err != nil && err != sql.ErrNoRows {
-			return err
-		}
-		if enforceOrder && existingID != "" {
-			// NIP-01 retains the lowest event ID when timestamps tie.
-			if l.CreatedAt < existingCreated || (l.CreatedAt == existingCreated && l.EventID > existingID) {
-				return nil
-			}
-		}
-		var vec []float32
-		if l.Status == listing.StatusActive && s.embedder != nil {
-			var existingDim int
-			if existingHash == l.TextHash {
-				var blob []byte
-				if err := s.db.QueryRowContext(ctx, `SELECT model, dim, vector FROM listing_embeddings WHERE coord = `+s.ph(1), l.Coord).Scan(&existingModel, &existingDim, &blob); err == nil && existingModel == s.embedder.ModelID() && existingDim == s.embedder.Dim() {
-					vec = bytesToFloats(blob)
-				}
-			}
-			if vec == nil {
-				var err error
-				vec, err = s.embedder.Embed(ctx, l.EmbedText())
-				if err != nil {
-					return err
-				}
-			}
+		if s.epoch(l.Coord) != epoch {
+			return ErrSuperseded
 		}
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}
 		defer tx.Rollback()
+		if s.backend == "postgres" {
+			if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, l.Coord); err != nil {
+				return err
+			}
+		}
+		if job != nil {
+			if err := s.checkJob(ctx, tx, *job); err != nil {
+				return err
+			}
+		}
+		var at int64
+		var id string
+		err = tx.QueryRowContext(ctx, `SELECT created_at,event_id FROM listings WHERE coord = `+s.ph(1), l.Coord).Scan(&at, &id)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if enforceOrder && id != "" && (l.CreatedAt < at || (l.CreatedAt == at && l.EventID > id)) {
+			return nil
+		}
+
 		now := nowUnix()
 		_, err = tx.ExecContext(ctx, `INSERT INTO listings (coord, event_id, kind, pubkey, d_tag, stall_id, status, inactive_reason, title, body, text_hash, created_at, updated_at)
 VALUES (`+placeholders(s, 13)+`)
@@ -230,6 +270,8 @@ ON CONFLICT(coord) DO UPDATE SET model=excluded.model, dim=excluded.dim, vector=
 		if err := tx.Commit(); err != nil {
 			return err
 		}
+
+		s.bumpEpoch(l.Coord)
 		if l.Status == listing.StatusActive && vec != nil {
 			s.ann.Upsert(l.Coord, l.EventID, l.CreatedAt, vec)
 		} else {
@@ -240,47 +282,48 @@ ON CONFLICT(coord) DO UPDATE SET model=excluded.model, dim=excluded.dim, vector=
 }
 
 func (s *sqlStore) MarkInactive(ctx context.Context, pubkey string, eventIDs, coords []string) error {
-	return s.runWrite(func() error {
-		for _, id := range eventIDs {
-			if id == "" {
-				continue
-			}
-			q := `SELECT coord FROM listings WHERE event_id = ` + s.ph(1)
-			args := []any{id}
-			if pubkey != "" {
-				q += ` AND pubkey = ` + s.ph(2)
-				args = append(args, pubkey)
-			}
-			rows, err := s.db.QueryContext(ctx, q, args...)
-			if err != nil {
+	for _, id := range eventIDs {
+		if id == "" {
+			continue
+		}
+		q := `SELECT coord FROM listings WHERE event_id = ` + s.ph(1)
+		args := []any{id}
+		if pubkey != "" {
+			q += ` AND pubkey = ` + s.ph(2)
+			args = append(args, pubkey)
+		}
+		rows, err := s.db.QueryContext(ctx, q, args...)
+		if err != nil {
+			return err
+		}
+		var found []string
+		for rows.Next() {
+			var c string
+			if err := rows.Scan(&c); err != nil {
+				_ = rows.Close()
 				return err
 			}
-			var found []string
-			for rows.Next() {
-				var c string
-				if err := rows.Scan(&c); err != nil {
-					_ = rows.Close()
-					return err
-				}
-				found = append(found, c)
-			}
-			_ = rows.Close()
-			for _, c := range found {
-				if err := s.markCoordInactive(ctx, c); err != nil {
-					return err
-				}
-			}
+			found = append(found, c)
 		}
-		for _, c := range coords {
+		_ = rows.Close()
+		for _, c := range found {
 			if err := s.markCoordInactive(ctx, c); err != nil {
 				return err
 			}
 		}
-		return nil
-	})
+	}
+	for _, c := range coords {
+		if err := s.markCoordInactive(ctx, c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *sqlStore) DeleteCoord(ctx context.Context, coord string) error {
+	lock := s.coordLock(coord)
+	lock.Lock()
+	defer lock.Unlock()
 	return s.runWrite(func() error {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
@@ -295,6 +338,7 @@ func (s *sqlStore) DeleteCoord(ctx context.Context, coord string) error {
 		if err := tx.Commit(); err != nil {
 			return err
 		}
+		s.bumpEpoch(coord)
 		s.ann.Delete(coord)
 		return nil
 	})
@@ -352,24 +396,30 @@ func (s *sqlStore) CoordsAfter(ctx context.Context, after string, limit int) ([]
 }
 
 func (s *sqlStore) markCoordInactive(ctx context.Context, coord string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `UPDATE listings SET status = `+s.ph(1)+`, inactive_reason = `+s.ph(2)+`, updated_at = `+s.ph(3)+` WHERE coord = `+s.ph(4),
-		listing.StatusInactive, listing.ReasonDeleted, nowUnix(), coord)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM listing_embeddings WHERE coord = `+s.ph(1), coord); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	s.ann.Delete(coord)
-	return nil
+	lock := s.coordLock(coord)
+	lock.Lock()
+	defer lock.Unlock()
+	return s.runWrite(func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		_, err = tx.ExecContext(ctx, `UPDATE listings SET status = `+s.ph(1)+`, inactive_reason = `+s.ph(2)+`, updated_at = `+s.ph(3)+` WHERE coord = `+s.ph(4),
+			listing.StatusInactive, listing.ReasonDeleted, nowUnix(), coord)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM listing_embeddings WHERE coord = `+s.ph(1), coord); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		s.bumpEpoch(coord)
+		s.ann.Delete(coord)
+		return nil
+	})
 }
 
 func (s *sqlStore) Get(ctx context.Context, coord string) (listing.Listing, bool, error) {
@@ -542,4 +592,18 @@ func (c *queryCache) put(key string, v []float32) {
 	}
 	c.m[key] = v
 	c.order = append(c.order, key)
+}
+
+func (s *sqlStore) coordLock(coord string) *sync.Mutex {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(coord))
+	return &s.coordMu[h.Sum32()%uint32(len(s.coordMu))]
+}
+func (s *sqlStore) epoch(coord string) uint64 {
+	v, _ := s.epochs.LoadOrStore(coord, new(atomic.Uint64))
+	return v.(*atomic.Uint64).Load()
+}
+func (s *sqlStore) bumpEpoch(coord string) {
+	v, _ := s.epochs.LoadOrStore(coord, new(atomic.Uint64))
+	v.(*atomic.Uint64).Add(1)
 }
