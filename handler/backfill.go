@@ -242,8 +242,8 @@ func (h *Handler) processJob(ctx context.Context, st Settings, store index.Store
 			return err
 		}
 		id := ""
-		if winner != nil {
-			id = winner.EventID
+		if len(p.Events) > 0 {
+			id = p.Events[0].ID
 		}
 		latestID := ""
 		if len(latest.Events) > 0 {

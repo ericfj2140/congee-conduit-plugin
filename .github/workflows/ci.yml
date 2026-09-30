@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: ericfj2140/congee
-          ref: cab22a454d65203f7cb912d900adc6668e1bb406
+          ref: f1cc5e4be8c6d685877d1aed7fe858ccbe443e0b
           path: congee-host
       - uses: dtolnay/rust-toolchain@1.88
       - uses: actions/cache@v4

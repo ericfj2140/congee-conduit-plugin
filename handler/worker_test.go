@@ -2,9 +2,11 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -240,5 +242,99 @@ func TestRebuildAndSettingsWaitForCancellationBeforeReplacingStore(t *testing.T)
 	}
 	if host.active.Load() != 0 || host.maxActive.Load() != 1 {
 		t.Fatalf("workers overlapped: active=%d max=%d", host.active.Load(), host.maxActive.Load())
+	}
+}
+
+type oneFailureEmbed struct{ embed.Fake }
+
+func (e oneFailureEmbed) Embed(ctx context.Context, text string) ([]float32, error) {
+	if strings.Contains(text, "poison") {
+		return nil, errors.New("temporary embedding failure")
+	}
+	return e.Fake.Embed(ctx, text)
+}
+func TestWorkerRetriesOneCoordinateWhileUnrelatedSearchRemainsAvailable(t *testing.T) {
+	ctx := context.Background()
+	e := oneFailureEmbed{}
+	store, err := index.OpenTurso(ctx, filepath.Join(t.TempDir(), "index.db"), e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(t.TempDir(), embed.Selection{Embedder: e})
+	host := newCanonicalHost()
+	h.store, h.host = store, host
+	t.Cleanup(func() { h.Close() })
+	bad, good := product("a", "bad", 10), product("b", "good", 10)
+	bad.Content = "poison bicycle"
+	host.put(bad)
+	host.put(good)
+	if err := h.OnStoredEvent(ctx, bad, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.OnStoredEvent(ctx, good, true); err != nil {
+		t.Fatal(err)
+	}
+	h.startBackfill(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		status, err := h.Status(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var stats struct {
+			Reconciliation struct{ Pending, Failed int } `json:"reconciliation"`
+		}
+		if err := json.Unmarshal(status.JSON, &stats); err != nil {
+			t.Fatal(err)
+		}
+		if status.Ready && stats.Reconciliation.Pending == 1 && stats.Reconciliation.Failed == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("retry did not isolate failure: %s", status.JSON)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	res, err := h.InterceptREQ(ctx, sdk.Req{Filters: []sdk.Filter{{Kinds: []int{listing.KindClassified}, Search: "bicycle"}}})
+	if err != nil || res.Action != sdk.InterceptRespond || len(res.EventIDs) != 1 || res.EventIDs[0] != good.ID {
+		t.Fatalf("unrelated search unavailable: %+v %v", res, err)
+	}
+	jobs, err := store.(index.ReconcileStore).Jobs(ctx, time.Now().Add(time.Hour).UnixMilli(), 4)
+	if err != nil || len(jobs) != 1 || jobs[0].Attempts < 1 || jobs[0].LastError == "" {
+		t.Fatalf("retry not durable: %+v %v", jobs, err)
+	}
+}
+
+func TestUnindexableCanonicalEventDoesNotRetryForever(t *testing.T) {
+	ctx := context.Background()
+	host := newCanonicalHost()
+	h, store := testHandler(t, filepath.Join(t.TempDir(), "index.db"), host)
+	ev := product("a", "custom", 10)
+	ev.Kind = 42
+	host.put(ev)
+	// Custom indexed kinds can contain events the marketplace parser ignores.
+	h.settings.ProductKinds = []int{42}
+	old := listing.Listing{Coord: coordFromHint(ev, h.settings), EventID: "old", Kind: 42, PubKey: testAuthor, DTag: "custom", Status: listing.StatusActive, Body: "bicycle", CreatedAt: 1}
+	old.TextHash = old.ComputeTextHash()
+	if err := store.Upsert(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.OnStoredEvent(ctx, ev, true); err != nil {
+		t.Fatal(err)
+	}
+	q := store.(index.ReconcileStore)
+	jobs, err := q.Jobs(ctx, time.Now().UnixMilli(), 4)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("jobs %v %v", jobs, err)
+	}
+	if err := h.processJob(ctx, h.settings, store, q, jobs[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := store.Get(ctx, old.Coord); err != nil || ok {
+		t.Fatalf("unindexable canonical event left stale row: %v %v", ok, err)
+	}
+	stats, _ := q.JobStats(ctx)
+	if stats["pending"].(int64) != 0 {
+		t.Fatalf("unindexable event keeps retrying: %v", stats)
 	}
 }
